@@ -20,7 +20,8 @@ Populates various configs and databases for deployment from the datastore-meta d
 3. Source virtual environment `. ./lis_autocontent_env/bin/activate`  (optional)
 4. Install Black and pre-commit for git hooks. `pip install black pre-commit`
 5. Initialize pre-commit (if you haven't already). `pip install pre-commit;pre-commit install`
-6. Build package locally. `python setup.py build` (optional)
+6. Install the package in editable mode with its dev dependencies. `pip install -e '.[dev]'`
+7. Run the tests. `pytest`
 
 ## Run
 
@@ -54,6 +55,11 @@ It joins the four metadata layers the datastore specification guarantees --
 list), `MANIFEST` (per-file descriptions and application tags) and the committed
 BUSCO summaries (completeness *and* assembly counts) -- then links annotations to
 the genomes they derive from and inherits assembly conventions along that edge.
+
+The reading is done by `DatastoreIndex`
+([`src/lis_autocontent/datastore_files.py`](src/lis_autocontent/datastore_files.py)),
+an in-memory index of every collection and file in the checkout that Python callers
+can query directly; `populate-catalog` serializes it.
 
 Against the full store this is roughly 1,000 collections and 5,000 files in about
 a second. Feed the result to DSCensor with `dscensor --catalog ./autocontent/catalog.json`.

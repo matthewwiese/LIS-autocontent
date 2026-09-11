@@ -1,0 +1,22 @@
+name: Pytest
+
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # A regular (not editable) install, so the tests exercise the built package,
+      # including its package data.
+      - name: Install package and dev dependencies
+        run: pip install '.[dev]'
+      - name: Run tests
+        run: pytest
