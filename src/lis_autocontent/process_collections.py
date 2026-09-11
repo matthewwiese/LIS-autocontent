@@ -11,7 +11,7 @@ from html.parser import HTMLParser
 import requests
 import yaml
 
-from .catalog import NODE_README_FIELDS
+from .datastore_files import NODE_README_FIELDS
 
 
 class ProcessCollections:

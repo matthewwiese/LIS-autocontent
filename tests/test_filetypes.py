@@ -14,7 +14,7 @@ import urllib.request
 import pytest
 import yaml
 
-from lis_autocontent.catalog import FILETYPES_PATH as FILETYPES
+from lis_autocontent.datastore_files import FILETYPES_PATH as FILETYPES
 
 SPEC_TREE = (
     "https://api.github.com/repos/legumeinfo/datastore-specifications/"
