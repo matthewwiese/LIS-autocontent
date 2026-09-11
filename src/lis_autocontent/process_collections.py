@@ -194,7 +194,21 @@ class ProcessCollections:
                         ):  # only process faa annotations in blast
                             continue
                         cmd = f"set -o pipefail -o errexit -o nounset; curl {url} | gzip -dc"  # retrieve genome and decompress
-                        cmd += f'| makeblastdb -parse_seqids -out {self.out_dir}/{name} -hash_index -dbtype prot -title "{genus.capitalize()} {species} {infraspecies} V{version.replace("ann", "")} {collection_type.capitalize()}"'
+                        # A protein set's name ends in the set, not a version
+                        # (cicar.CDCFrontier.gnm3.ann1.protein), and the assembly version
+                        # is needed too: otherwise the proteins of gnm1.ann1, gnm2.ann1 and
+                        # gnm3.ann1 would all share one title.
+                        gnm, ann, protein_set = name.split(".")[2:5]
+                        label = (
+                            "Primary Proteins"
+                            if protein_set == "protein_primary"
+                            else "Proteins"
+                        )
+                        title = (
+                            f"{genus.capitalize()} {species} {infraspecies} "
+                            f'V{gnm.replace("gnm", "")} Annotation {ann.replace("ann", "")} {label}'
+                        )
+                        cmd += f'| makeblastdb -parse_seqids -out {self.out_dir}/{name} -hash_index -dbtype prot -title "{title}"'
                         if taxid:
                             cmd += f" -taxid {taxid}"
 
