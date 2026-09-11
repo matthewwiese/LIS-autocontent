@@ -1,0 +1,15 @@
+---
+species:
+- abbrev: cicar
+  commonName: chickpea
+  description: Demo species description.
+  genus: Cicer
+  species: arietinum
+  strains:
+  - identifier: CDCFrontier
+    name: CDC Frontier
+    origin: Canada
+    resources:
+    - URL: https://example.org/cdc
+      name: Demo strain resource
+  taxid: 3827

@@ -1,0 +1,10 @@
+---
+commonName: Chickpea
+description: Demo genus description.
+genus: Cicer
+resources:
+- URL: https://example.org/cicer
+  name: Demo genus resource
+species:
+- arietinum
+taxid: 3826

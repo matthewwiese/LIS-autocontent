@@ -1,0 +1,153 @@
+{
+  "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Flower.bw.json": {
+    "bioproject": "PRJNA000001",
+    "busco": null,
+    "canonical_type": "Singh_Garg_2013",
+    "collection_type": "expression",
+    "counts": null,
+    "derived_from": [
+      "cicar.CDCFrontier.gnm3"
+    ],
+    "expression_unit": "TPM",
+    "filename": "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Flower.bw",
+    "filetype": "Singh_Garg_2013",
+    "genotype": [
+      "ICC4958"
+    ],
+    "genus": "Cicer",
+    "infraspecies": "CDCFrontier",
+    "origin": "LIS",
+    "publication_doi": "10.1000/demo.expression",
+    "scientific_name_abbrev": "cicar",
+    "species": "arietinum",
+    "taxid": 3827,
+    "url": "https://data.legumeinfo.org/Cicer/arietinum/expression/CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013/cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Flower.bw"
+  },
+  "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Young_leaves.bw.json": {
+    "bioproject": "PRJNA000001",
+    "busco": null,
+    "canonical_type": "Singh_Garg_2013",
+    "collection_type": "expression",
+    "counts": null,
+    "derived_from": [
+      "cicar.CDCFrontier.gnm3"
+    ],
+    "expression_unit": "TPM",
+    "filename": "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Young_leaves.bw",
+    "filetype": "Singh_Garg_2013",
+    "genotype": [
+      "ICC4958"
+    ],
+    "genus": "Cicer",
+    "infraspecies": "CDCFrontier",
+    "origin": "LIS",
+    "publication_doi": "10.1000/demo.expression",
+    "scientific_name_abbrev": "cicar",
+    "species": "arietinum",
+    "taxid": 3827,
+    "url": "https://data.legumeinfo.org/Cicer/arietinum/expression/CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013/cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Young_leaves.bw"
+  },
+  "cicar.CDCFrontier.gnm3.ann1.json": {
+    "busco": {
+      "complete_buscos": 5317,
+      "duplicate_buscos": 139,
+      "fragmented_buscos": 16,
+      "missing_buscos": 32,
+      "single_copy_buscos": 5178,
+      "total_buscos": 5366
+    },
+    "canonical_type": "gene_models_main",
+    "collection_type": "annotations",
+    "counts": {},
+    "derived_from": [
+      "cicar.CDCFrontier.gnm3"
+    ],
+    "filename": "cicar.CDCFrontier.gnm3.ann1",
+    "filetype": "gene_models_main",
+    "genus": "Cicer",
+    "infraspecies": "CDCFrontier",
+    "license": "Open",
+    "origin": "LIS",
+    "publication_doi": "10.1000/demo.annotation",
+    "scientific_name_abbrev": "cicar",
+    "species": "arietinum",
+    "taxid": 3827,
+    "url": "https://data.legumeinfo.org/Cicer/arietinum/annotations/CDCFrontier.gnm3.ann1.NPD7/cicar.CDCFrontier.gnm3.ann1.NPD7.gene_models_main.gff3.gz"
+  },
+  "cicar.CDCFrontier.gnm3.ann1.protein.json": {
+    "busco": null,
+    "canonical_type": "protein",
+    "collection_type": "annotations",
+    "counts": null,
+    "derived_from": [
+      "cicar.CDCFrontier.gnm3"
+    ],
+    "filename": "cicar.CDCFrontier.gnm3.ann1.protein",
+    "filetype": "protein",
+    "genus": "Cicer",
+    "infraspecies": "CDCFrontier",
+    "license": "Open",
+    "origin": "LIS",
+    "publication_doi": "10.1000/demo.annotation",
+    "scientific_name_abbrev": "cicar",
+    "species": "arietinum",
+    "taxid": 3827,
+    "url": "https://data.legumeinfo.org/Cicer/arietinum/annotations/CDCFrontier.gnm3.ann1.NPD7/cicar.CDCFrontier.gnm3.ann1.NPD7.protein.faa.gz"
+  },
+  "cicar.CDCFrontier.gnm3.json": {
+    "busco": {
+      "complete_buscos": 5301,
+      "duplicate_buscos": 96,
+      "fragmented_buscos": 10,
+      "missing_buscos": 53,
+      "single_copy_buscos": 5205,
+      "total_buscos": 5366
+    },
+    "canonical_type": "genome_main",
+    "chromosome_prefix": "chr",
+    "collection_type": "genomes",
+    "counts": {
+      "N50": 65305557,
+      "allbases": 638661011,
+      "contigs": 2491,
+      "gapbases": 38319,
+      "gaps": 2490,
+      "records": 2095
+    },
+    "derived_from": [
+      ""
+    ],
+    "filename": "cicar.CDCFrontier.gnm3",
+    "filetype": "genome_main",
+    "genotype": [
+      "CDCFrontier"
+    ],
+    "genus": "Cicer",
+    "infraspecies": "CDCFrontier",
+    "license": "Open",
+    "origin": "LIS",
+    "publication_doi": "10.1000/demo.genome",
+    "scientific_name_abbrev": "cicar",
+    "species": "arietinum",
+    "supercontig_prefix": "tig",
+    "taxid": 3827,
+    "url": "https://data.legumeinfo.org/Cicer/arietinum/genomes/CDCFrontier.gnm3.QT0P/cicar.CDCFrontier.gnm3.QT0P.genome_main.fna.gz"
+  },
+  "cicar.CDCFrontier.gnm3.x.cicec.S2Drd065.gnm1.PXV3.minimap2.paf.gz.json": {
+    "busco": null,
+    "canonical_type": "minimap2",
+    "collection_type": "genome_alignments",
+    "counts": null,
+    "derived_from": [
+      "cicec.S2Drd065.gnm1",
+      "cicar.CDCFrontier.gnm3"
+    ],
+    "filename": "cicar.CDCFrontier.gnm3.x.cicec.S2Drd065.gnm1.PXV3.minimap2.paf.gz",
+    "filetype": "minimap2",
+    "genus": "Cicer",
+    "infraspecies": "CDCFrontier",
+    "origin": "LIS",
+    "species": "arietinum",
+    "url": "https://data.legumeinfo.org/Cicer/arietinum/genome_alignments/CDCFrontier.gnm3.wga.PXV3/cicar.CDCFrontier.gnm3.x.cicec.S2Drd065.gnm1.PXV3.minimap2.paf.gz"
+  }
+}

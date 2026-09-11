@@ -1,0 +1,15 @@
+---
+species:
+- name: arietinum
+  genomes:
+    - collection: CDCFrontier.gnm3.QT0P
+      synopsis: "Demo genome assembly"
+  annotations:
+    - collection: CDCFrontier.gnm3.ann1.NPD7
+      synopsis: "Demo genome annotation"
+  expression:
+    - collection: CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013
+      synopsis: "Demo expression study"
+  genome_alignments:
+    - collection: CDCFrontier.gnm3.wga.PXV3
+      synopsis: "Demo alignments"

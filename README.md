@@ -23,6 +23,11 @@ Populates various configs and databases for deployment from the datastore-meta d
 6. Install the package in editable mode with its dev dependencies. `pip install -e '.[dev]'`
 7. Run the tests. `pytest`
 
+   Some tests compare generated artifacts (the catalog, DSCensor nodes, BLAST and
+   JBrowse2 commands, Jekyll YAML) with reviewed copies in `tests/data/`. If one fails
+   because the change to that artifact is intended, regenerate the copies with
+   `LIS_UPDATE_EXPECTED=1 pytest` and review the diff before committing it.
+
 ## Run
 
 ```

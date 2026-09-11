@@ -1,7 +1,8 @@
 """Tests for the offline parts of ProcessCollections.
 
 Taxon selection needs no network. Remote existence checks are tested with requests
-stubbed out. Everything else fetches from the remote datastore.
+stubbed out. The artifacts each subcommand produces are covered end to end in
+test_cli.py.
 """
 
 import logging
