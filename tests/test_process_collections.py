@@ -1,8 +1,7 @@
 """Tests for the offline parts of ProcessCollections.
 
 Taxon selection needs no network. Remote existence checks are tested with requests
-stubbed out. Everything else fetches from the remote datastore and is exercised by
-running the CLI.
+stubbed out. Everything else fetches from the remote datastore.
 """
 
 import logging
@@ -42,21 +41,21 @@ def fixture_parser(clone):
     return parser
 
 
-def test_genera_are_discovered_from_their_genus_descriptions(parser):
-    """LEGUMES and .github are top-level directories but not genera."""
-    assert parser.discover_genera() == ["Cicer", "Glycine"]
-
-
 def test_no_taxa_list_means_every_genus(parser):
+    """Genera are discovered from their GENUS descriptions: LEGUMES and .github are
+    top-level directories but not genera."""
     assert parser.load_taxa() == [{"genus": "Cicer"}, {"genus": "Glycine"}]
 
 
-def test_a_taxa_list_restricts_the_run(parser, tmp_path):
+def test_parse_collections_processes_the_taxa_list_it_is_given(
+    parser, clone, tmp_path, monkeypatch
+):
     taxa = tmp_path / "taxa.yml"
     taxa.write_text(yaml.dump([{"genus": "Cicer", "description": "Chickpea"}]))
-    assert parser.load_taxa(str(taxa)) == [
-        {"genus": "Cicer", "description": "Chickpea"}
-    ]
+    processed = []
+    monkeypatch.setattr(parser, "process_taxon", processed.append)
+    parser.parse_collections(clone, str(taxa))
+    assert processed == [{"genus": "Cicer", "description": "Chickpea"}]
 
 
 def test_a_directory_given_as_the_taxa_list_falls_back_to_discovery(parser, clone):
@@ -80,20 +79,15 @@ def _stub_head(status, asked):
     return fake_head
 
 
-@pytest.mark.parametrize("status, exists", [(200, True), (404, False)])
-def test_head_remote_reports_existence_from_the_status(
-    parser, monkeypatch, status, exists
-):
-    """A HEAD response has no body, so returning its text ("") made every check fail."""
-    monkeypatch.setattr(requests, "head", _stub_head(status, []))
-    assert parser.head_remote("https://x/f.protein.faa.gz") is exists
-
-
+@pytest.mark.parametrize(
+    "status, proteins", [(200, [".protein", ".protein_primary"]), (404, [])]
+)
 def test_annotations_yield_the_protein_files_that_exist(
-    parser, clone, write, monkeypatch
+    parser, clone, write, monkeypatch, status, proteins
 ):
-    """The regression: no protein or protein_primary file ever became a DSCensor node
-    or a BLAST database, because every existence check came back falsy."""
+    """The regression: a HEAD response has no body, so returning its text made every
+    existence check fail, and no protein or protein_primary file ever became a
+    DSCensor node or a BLAST database. A file that is absent must still be skipped."""
     key = "CDCFrontier.gnm3.ann1.NPD7"
     write(
         os.path.join(
@@ -102,12 +96,11 @@ def test_annotations_yield_the_protein_files_that_exist(
         f"identifier: {key}\nsynopsis: Chickpea annotation\n",
     )
     asked = []
-    monkeypatch.setattr(requests, "head", _stub_head(200, asked))
+    monkeypatch.setattr(requests, "head", _stub_head(status, asked))
     parser.add_collections("annotations", "Cicer", "arietinum")
     base = f"https://data.legumeinfo.org/Cicer/arietinum/annotations/{key}/cicar.{key}"
     assert asked == [f"{base}.protein_primary.faa.gz", f"{base}.protein.faa.gz"]
-    assert sorted(parser.files["annotations"]) == [
-        "cicar.CDCFrontier.gnm3.ann1",
-        "cicar.CDCFrontier.gnm3.ann1.protein",
-        "cicar.CDCFrontier.gnm3.ann1.protein_primary",
-    ]
+    lookup = "cicar.CDCFrontier.gnm3.ann1"
+    assert sorted(parser.files["annotations"]) == sorted(
+        [lookup] + [lookup + suffix for suffix in proteins]
+    )

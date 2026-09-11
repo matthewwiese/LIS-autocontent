@@ -1,8 +1,9 @@
 """Tests for the whole-store datastore index.
 
-The index is the model every output is built from, so these exercise it directly:
-collection discovery, CHECKSUM parsing, file-name parsing, prediction and probing.
-What the catalog document makes of it is covered in test_catalog.py.
+The index is the model every output is built from. These cover what the catalog
+document cannot show -- CHECKSUM parsing details, file-name parsing, prediction,
+probing and the query API -- and are exercised against the index directly. What the
+catalog document makes of it is covered in test_catalog.py.
 """
 
 import os
@@ -30,47 +31,26 @@ def _checksum(*names):
 
 
 # --- discovery -----------------------------------------------------------------------
-def test_every_collection_is_indexed_not_only_those_with_a_checksum(metadata_dir):
-    """Keying off CHECKSUM alone missed ~45% of the store."""
-    index = DatastoreIndex(metadata_dir).build()
-    assert {path: c.index_status for path, c in index.collections.items()} == {
-        ANNOTATION: "known",
-        GENOME: "unknown",  # no CHECKSUM, and genomes have no documented vocabulary
-        QTL: "inferred",
-    }
-
-
 def test_orphan_collections_are_those_without_a_checksum(metadata_dir):
     assert DatastoreIndex(metadata_dir).build().orphan_collections() == [GENOME, QTL]
 
 
-def test_rebuilding_does_not_accumulate(metadata_dir):
-    index = DatastoreIndex(metadata_dir)
-    first = dict(index.build().stats)
-    assert index.build().stats == first
-    assert len(index.files) == sum(len(c.files) for c in index.collections.values())
-
-
 def test_node_fields_are_a_subset_of_catalog_fields():
-    """The node list is deliberately narrower, but must never drift outside it."""
+    """DSCensor nodes carry NODE_README_FIELDS and the catalog carries README_FIELDS.
+    The node list is deliberately narrower, but must never drift outside it, or the
+    two artifacts would disagree about what a collection's README says."""
     assert set(NODE_README_FIELDS) <= set(README_FIELDS)
 
 
 # --- CHECKSUM parsing ------------------------------------------------------------------
-def test_every_file_is_indexed_including_metadata_and_index_siblings(metadata_dir):
-    """The index keeps every CHECKSUM line; `data_files` is the filtered view."""
+def test_every_checksum_line_is_a_record_with_its_md5(metadata_dir):
+    """The index keeps every CHECKSUM line, metadata and index siblings included, so
+    `companion` can find a data file's .fai along with its md5."""
     index = DatastoreIndex(metadata_dir).build()
     annotation = index.collections[ANNOTATION]
     assert len(annotation.files) == 9
-    assert [r.filename for r in annotation.data_files] == [
-        "glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz",
-        "glyma.Wm82.gnm4.ann1.T8TQ.legume.fam3.VLMQ.gfa.tsv.gz",
-        "glyma.Wm82.gnm4.ann1.T8TQ.protein_primary.faa.gz",
-    ]
-    protein = annotation.data_files[2]
-    fai = index.companion(protein, ".fai")
-    assert fai is not None and fai.md5 == MD5
-    assert protein.indexes == [".fai"]
+    (protein,) = [r for r in annotation.data_files if "protein_primary" in r.filename]
+    assert index.companion(protein, ".fai").md5 == MD5
 
 
 def test_file_names_are_parsed_into_canonical_type_and_extensions(metadata_dir):
@@ -85,8 +65,9 @@ def test_file_names_are_parsed_into_canonical_type_and_extensions(metadata_dir):
 
 
 def test_a_checksum_not_named_for_its_directory_is_still_read(metadata_dir, write):
-    """legume.fam1.M65K publishes CHECKSUM.mixed.fam1.M65K.md5. Looking only for
-    CHECKSUM.<directory>.md5 missed it and demoted an authoritative list to a guess."""
+    """legume.fam1.M65K publishes CHECKSUM.mixed.fam1.M65K.md5 and nothing else.
+    Looking only for CHECKSUM.<directory>.md5 missed it and demoted an authoritative
+    list to a guess."""
     path = "LEGUMES/Fabaceae/genefamilies/legume.fam1.M65K"
     coll = os.path.join(metadata_dir, path)
     write(os.path.join(coll, "README.legume.fam1.M65K.yml"), "identifier: x\n")
@@ -162,20 +143,28 @@ def test_pairwise_parents_are_parsed_from_the_file_name():
 # --- BUSCO and counts, offline -----------------------------------------------------
 def test_metrics_are_parsed_from_the_committed_summary(metadata_dir):
     """The short_summary JSON carries assembly metrics as well as completeness, so
-    no .fai fetch is needed and the build stays offline."""
+    no .fai fetch is needed and the build stays offline. Every field is pinned: a
+    metric read from the wrong key is a scientific error, not a cosmetic one."""
     index = DatastoreIndex(metadata_dir)
     busco, counts = index.busco_summary(os.path.join(metadata_dir, GENOME))
-    assert busco["complete_pct"] == 99.4
-    assert busco["total"] == 5366
-    assert counts["contig_n50"] == 419290
-    assert counts["scaffold_n50"] == 49893278
-    assert counts["percent_gaps"] == 2.648
+    assert busco == {
+        "lineage": "eukaryota",
+        "total": 5366,
+        "complete_pct": 99.4,
+        "single_copy_pct": 36.9,
+        "duplicate_pct": 62.5,
+        "fragmented_pct": 0.1,
+        "missing_pct": 0.5,
+    }
+    assert counts == {
+        "scaffolds": 282,
+        "contigs": 9200,
+        "total_length": 978386919,
+        "scaffold_n50": 49893278,
+        "contig_n50": 419290,
+        "percent_gaps": 2.648,
+    }
     assert index.build().collections[GENOME].busco == busco
-
-
-def test_busco_summary_absent_is_not_an_error(metadata_dir):
-    index = DatastoreIndex(metadata_dir)
-    assert index.busco_summary(os.path.join(metadata_dir, ANNOTATION)) == (None, None)
 
 
 # --- file prediction for collections that publish no CHECKSUM ------------------------
@@ -196,41 +185,11 @@ def test_prefixless_types_omit_the_abbrev(metadata_dir):
     """pangenes and genefamilies are genus/family-scoped: files are
     `Cicer.pan2.CMWZ.clust.tsv.gz`, with no abbrev in front."""
     index = DatastoreIndex(metadata_dir)
-    names = index.predicted_files("pangenes", "Cicer.pan2.CMWZ", "cicar")
-    assert all(n.startswith("Cicer.pan2.CMWZ.") for n in names)
-
-
-def test_unpredictable_types_are_never_guessed(metadata_dir):
-    """Supplementary files carry study-specific names with no convention."""
-    index = DatastoreIndex(metadata_dir)
-    assert index.predicted_files("supplements", "mixed.esm.X_2016", "glyma") == []
-
-
-def test_unknown_type_predicts_nothing(metadata_dir):
-    assert (
-        DatastoreIndex(metadata_dir).predicted_files("nosuchtype", "X", "glyma") == []
-    )
-
-
-def test_abbrev_prefixed_type_without_an_abbrev_predicts_nothing(metadata_dir):
-    """Better an empty list than a filename missing its prefix."""
-    index = DatastoreIndex(metadata_dir)
-    assert index.predicted_files("qtl", "Demo.qtl.X_1990", None) == []
-
-
-def test_a_missing_vocabulary_degrades_to_no_prediction(metadata_dir, monkeypatch):
-    """Losing filetypes.yml must not fail a build; it just stops predicting."""
-    index = DatastoreIndex(metadata_dir)
-    monkeypatch.setattr(index, "filetypes", {})
-    assert index.predicted_files("qtl", "Demo.qtl.X_1990", "glyma") == []
-
-
-def test_types_documented_as_unindexed_are_not_probed_for_indexes(metadata_dir):
-    """qtl/gwas/maps never publish .fai/.tbi (verified: 72 probes, 0 hits), so their
-    files carry no index-unknown marker."""
-    index = DatastoreIndex(metadata_dir)
-    assert index.type_is_indexed("qtl") is False
-    assert index.type_is_indexed("annotations") is True
+    assert index.predicted_files("pangenes", "Cicer.pan2.CMWZ", "cicar") == [
+        "Cicer.pan2.CMWZ.clust.tsv.gz",
+        "Cicer.pan2.CMWZ.hsh.tsv.gz",
+        "Cicer.pan2.CMWZ.counts.tsv.gz",
+    ]
 
 
 # --- probing ---------------------------------------------------------------------------

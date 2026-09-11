@@ -29,6 +29,7 @@ def fixture_vocabulary():
 
 
 def test_every_entry_is_well_formed(vocabulary):
+    """Behavioural tests only exercise a few types; this is the guard for the rest."""
     for ctype, spec in vocabulary.items():
         assert isinstance(spec, dict), ctype
         if spec.get("predictable") is False:
@@ -39,17 +40,15 @@ def test_every_entry_is_well_formed(vocabulary):
         assert str(spec.get("extension", "")).startswith("."), ctype
 
 
-def test_prefix_none_is_only_for_genus_or_family_scoped_types(vocabulary):
-    """Those sets are named `Cicer.pan2.CMWZ.*` / `legume.fam1.M65K.*`, with no
-    species abbreviation in front. Getting this wrong yields filenames that 404."""
+def test_empirically_verified_flags_are_pinned(vocabulary):
+    """`prefix` and `indexed` are not in datastore-specifications, so the spec check
+    below cannot catch them drifting. Both were verified against the live store:
+    prefixless sets are named `Cicer.pan2.CMWZ.*` / `legume.fam1.M65K.*` (an abbrev in
+    front yields filenames that 404), and 72 probes across qtl/gwas/maps found no
+    index siblings (marking an indexable type unindexed hides streamable data)."""
     prefixless = {t for t, s in vocabulary.items() if s.get("prefix") == "none"}
-    assert prefixless == {"pangenes", "genefamilies"}
-
-
-def test_unindexed_types_are_the_tabular_study_types(vocabulary):
-    """Marking a type `indexed: false` skips probing for .fai/.tbi siblings. Verified
-    empirically: 72 probes across qtl/gwas/maps found none."""
     unindexed = {t for t, s in vocabulary.items() if s.get("indexed") is False}
+    assert prefixless == {"pangenes", "genefamilies"}
     assert unindexed == {"qtl", "gwas", "maps", "mstmap"}
 
 

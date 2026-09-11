@@ -9,13 +9,43 @@ import json
 import os
 
 import pytest
+import yaml
 
 from lis_autocontent.catalog import SCHEMA_VERSION, CatalogBuilder
+from lis_autocontent.datastore_files import README_FIELDS
 
 GENOME = "Glycine/max/genomes/Wm82.gnm4.4PTR"
 ANNOTATION = "Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ"
 QTL = "Glycine/max/qtl/Demo.qtl.X_1990"
 MD5 = "d41d8cd98f00b204e9800998ecf8427e"
+
+# One value for every README field the catalog publishes, in the types the datastore
+# uses (taxid is an integer, genotype and keywords are lists).
+EVERY_README_FIELD = {
+    "synopsis": "Demo synopsis",
+    "description": "Demo description",
+    "scientific_name": "Glycine max",
+    "taxid": 3847,
+    "scientific_name_abbrev": "glyma",
+    "genotype": ["Williams 82"],
+    "publication_doi": "10.1111/tpj.14500",
+    "publication_title": "Demo publication",
+    "citation": "Demo et al., 2020",
+    "license": "Open",
+    "public_access_level": "public",
+    "keywords": ["soybean", "genome"],
+    "chromosome_prefix": "Gm",
+    "supercontig_prefix": "scaffold",
+    "bioproject": "PRJNA19861",
+    "genbank_accession": "GCA_000004515.4",
+    "sraproject": "SRP000001",
+    "genetic_map": "GmComposite1999",
+    "expression_unit": "TPM",
+    "dataset_doi": "10.5281/zenodo.1",
+    "related_to": ["Wm82.gnm4.4PTR"],
+    "source": "https://example.org",
+    "dataset_release_date": "2020-01-01",
+}
 
 
 @pytest.fixture(name="catalog")
@@ -36,44 +66,74 @@ def test_document_carries_schema_and_build_stamp(catalog):
     assert catalog["stats"]["collections"] == 3
 
 
-def test_every_collection_is_found(catalog):
-    assert sorted(_by_path(catalog)) == [ANNOTATION, GENOME, QTL]
+def test_stats_summarise_the_document(catalog):
+    """Every counter is published, so every counter is pinned for the fixture tree."""
+    assert catalog["stats"] == {
+        "collections": 3,
+        "files": 7,  # 3 annotation data files + 4 predicted qtl files
+        "indexed_files": 2,  # protein .fai, gene models .tbi
+        "with_doi": 3,
+        "index_unknown": 1,  # the genome: no CHECKSUM, no vocabulary
+        "with_busco": 1,
+        "curated_symbols": 0,
+        "described_taxa": 0,
+        "pairwise_files": 0,
+        "paired_genomes": 0,
+        "predicted_files": 4,
+        "verified_files": 0,
+        "probes": 0,
+    }
 
 
 # --- README propagation ------------------------------------------------------
-def test_readme_fields_are_carried_verbatim(catalog):
+@pytest.mark.parametrize(
+    "ctype, key, has_checksum",
+    [("genomes", "Wm82.gnm9.ABCD", True), ("qtl", "Demo.qtl.Y_2000", False)],
+)
+def test_every_readme_field_is_carried_verbatim(
+    metadata_dir, write, ctype, key, has_checksum
+):
     """The regression this exists to prevent: taxid and publication_doi were both
-    parsed and then dropped before reaching a consumer."""
-    genome = _by_path(catalog)[GENOME]
-    assert genome["taxid"] == 3847
-    assert genome["publication_doi"] == "10.1111/tpj.14500"
-    assert genome["scientific_name_abbrev"] == "glyma"
-    assert genome["license"] == "Open"
-    assert genome["genotype"] == ["Williams 82"]
-
-
-def test_qtl_keeps_its_metadata_without_a_checksum(catalog):
-    """No CHECKSUM costs the file list, not the metadata."""
-    qtl = _by_path(catalog)[QTL]
-    assert qtl["publication_doi"] == "10.1007/bf00226154"
-    assert qtl["genetic_map"] == "GmComposite1999"
+    parsed and then dropped before reaching a consumer. Whether a collection has a
+    CHECKSUM changes its file list, never its metadata."""
+    assert set(EVERY_README_FIELD) == set(README_FIELDS)  # keep this table complete
+    path = f"Glycine/max/{ctype}/{key}"
+    coll = os.path.join(metadata_dir, path)
+    readme = dict(EVERY_README_FIELD, identifier=key)
+    write(os.path.join(coll, f"README.{key}.yml"), yaml.safe_dump(readme))
+    if has_checksum:
+        write(
+            os.path.join(coll, f"CHECKSUM.{key}.md5"),
+            f"{MD5}  ./glyma.{key}.genome_main.fna.gz\n",
+        )
+    record = _by_path(CatalogBuilder(metadata_dir).build())[path]
+    assert {field: record.get(field) for field in README_FIELDS} == EVERY_README_FIELD
 
 
 # --- index status: how the file list was obtained -----------------------------
-def test_index_status_distinguishes_how_the_file_list_was_obtained(catalog):
-    """Four states, and consumers rely on the difference: `known` came from a CHECKSUM,
-    `inferred`/`verified` were constructed from the documented convention, `unknown`
-    means neither was possible. Collapsing them presents a guess as a fact."""
-    qtl = _by_path(catalog)[QTL]
-    assert qtl["index_status"] == "inferred"  # no CHECKSUM, vocabulary applied
-    assert {f["src"] for f in qtl["files"]} == {"predicted"}
-
-    annotation = _by_path(catalog)[ANNOTATION]
-    assert annotation["index_status"] == "known"  # CHECKSUM published
+def test_index_status_and_src_record_how_each_file_list_was_obtained(catalog):
+    """Consumers rely on the difference: `known`/`checksum` came from a CHECKSUM,
+    `inferred`/`predicted` were constructed from the documented convention, `unknown`
+    means neither was possible. Collapsing them presents a guess as a fact. (`verified`
+    is covered by test_verify_keeps_only_files_that_exist.)"""
+    records = _by_path(catalog)
+    observed = {
+        path: (
+            records[path]["index_status"],
+            sorted({f["src"] for f in records[path]["files"]}),
+        )
+        for path in (ANNOTATION, QTL, GENOME)
+    }
+    assert observed == {
+        ANNOTATION: ("known", ["checksum"]),
+        QTL: ("inferred", ["predicted"]),
+        GENOME: ("unknown", []),
+    }
 
 
 def test_index_siblings_become_flags_not_entries(catalog):
-    """.fai/.tbi/.gzi are evidence about other files, never data files themselves."""
+    """.fai/.tbi/.gzi are evidence about other files, never data files themselves, and
+    README/MANIFEST/CHECKSUM are metadata: only the 3 data files are listed."""
     annotation = _by_path(catalog)[ANNOTATION]
     names = [f["n"] for f in annotation["files"]]
     assert len(names) == 3  # protein, gene models, gene families
@@ -83,12 +143,6 @@ def test_index_siblings_become_flags_not_entries(catalog):
         "glyma.Wm82.gnm4.ann1.T8TQ.protein_primary.faa.gz": [".fai"],
         "glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz": [".tbi"],
     }
-
-
-def test_metadata_files_are_not_listed_as_data(catalog):
-    annotation = _by_path(catalog)[ANNOTATION]
-    names = [f["n"] for f in annotation["files"]]
-    assert not any(n.startswith(("README.", "MANIFEST.", "CHECKSUM.")) for n in names)
 
 
 # --- MANIFEST ----------------------------------------------------------------
@@ -116,11 +170,6 @@ def test_metrics_are_not_emitted_yet(catalog):
     assert "counts" not in genome
 
 
-def test_busco_availability_is_still_reported_in_stats(catalog):
-    """The build diagnostic must stay truthful while the metrics are withheld."""
-    assert catalog["stats"]["with_busco"] == 1
-
-
 # --- lineage and inheritance -------------------------------------------------
 def test_annotation_links_to_its_genome(catalog):
     annotation = _by_path(catalog)[ANNOTATION]
@@ -128,12 +177,19 @@ def test_annotation_links_to_its_genome(catalog):
 
 
 def test_assembly_conventions_are_inherited_down_the_edge(catalog):
-    """chromosome_prefix lives on the genome README only. Without inheritance a
-    caller cannot turn `Gm12` into `glyma.Wm82.gnm4.Gm12` from an annotation."""
+    """These live on the genome README only. Without inheritance a caller cannot turn
+    `Gm12` into `glyma.Wm82.gnm4.Gm12` from an annotation."""
     annotation = _by_path(catalog)[ANNOTATION]
-    assert annotation["chromosome_prefix"] == "Gm"
-    assert annotation["bioproject"] == "PRJNA19861"
-    assert "chromosome_prefix" in annotation["inherited"]
+    assert annotation["inherited"] == [
+        "chromosome_prefix",
+        "supercontig_prefix",
+        "bioproject",
+    ]
+    assert (
+        annotation["chromosome_prefix"],
+        annotation["supercontig_prefix"],
+        annotation["bioproject"],
+    ) == ("Gm", "scaffold", "PRJNA19861")
 
 
 def test_inheritance_never_overwrites_a_published_value(metadata_dir):
@@ -152,8 +208,10 @@ def test_genomes_do_not_derive_from_themselves(catalog):
 
 
 def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write):
-    """A pairwise file is stored once, under its reference genome; the catalog lifts it
-    into a top-level edge list, keeping any duplication epoch."""
+    """A pairwise file is stored once, under its reference genome; the catalog lifts
+    synteny and whole-genome alignments into one edge list sorted by genome pair,
+    keeping any duplication epoch. The alignment collection sorts first on disk, so the
+    expected order below only holds if the list is actually sorted."""
     synteny = "Glycine/max/synteny/Wm82.gnm4.synt.PXV3"
     partner = "glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz"
     self_pair = "glyma.Wm82.gnm4.x.glyma.Wm82.gnm4.old_duplication.PXV3.gff3.gz"
@@ -163,28 +221,80 @@ def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write)
             f"{MD5}  ./{name}" for name in (partner, partner + ".tbi", self_pair)
         ),
     )
+    alignments = "Glycine/max/genome_alignments/Wm82.gnm4.wga.LXVF"
+    stem = "glyma.Wm82.gnm4.x.vigun.IT97K-499-35.gnm1.LXVF"
+    write(
+        os.path.join(metadata_dir, alignments, "CHECKSUM.Wm82.gnm4.wga.LXVF.md5"),
+        "\n".join(f"{MD5}  ./{stem}.{ext}" for ext in ("paf.gz", "bam", "bam.bai")),
+    )
     pairs = CatalogBuilder(metadata_dir).build()["pairwise"]
-    assert [(p["a"], p["b"], p.get("epoch"), p.get("self")) for p in pairs] == [
-        ("glyma.Wm82.gnm4", "glyma.Wm82.gnm4", "old_duplication", True),
-        ("glyma.Wm82.gnm4", "phavu.G19833.gnm2", None, None),
+    assert [
+        (
+            p["a"],
+            p["b"],
+            p["kind"],
+            p["format"],
+            p.get("epoch"),
+            p.get("self"),
+            p.get("i"),
+        )
+        for p in pairs
+    ] == [
+        (
+            "glyma.Wm82.gnm4",
+            "glyma.Wm82.gnm4",
+            "synteny",
+            "gff3.gz",
+            "old_duplication",
+            True,
+            None,
+        ),
+        (
+            "glyma.Wm82.gnm4",
+            "phavu.G19833.gnm2",
+            "synteny",
+            "gff3.gz",
+            None,
+            None,
+            [".tbi"],
+        ),
+        (
+            "glyma.Wm82.gnm4",
+            "vigun.IT97K-499-35.gnm1",
+            "alignment",
+            "bam",
+            None,
+            None,
+            [".bai"],
+        ),
+        (
+            "glyma.Wm82.gnm4",
+            "vigun.IT97K-499-35.gnm1",
+            "alignment",
+            "paf.gz",
+            None,
+            None,
+            None,
+        ),
     ]
-    assert pairs[1]["kind"] == "synteny"
-    assert pairs[1]["i"] == [".tbi"]
     assert pairs[1]["url"] == f"https://data.legumeinfo.org/{synteny}/{partner}"
+    assert pairs[3]["collection"] == alignments
 
 
 # --- urls and output ---------------------------------------------------------
-def test_base_url_points_at_the_datastore(catalog):
-    annotation = _by_path(catalog)[ANNOTATION]
-    assert annotation["base_url"] == f"https://data.legumeinfo.org/{ANNOTATION}"
-
-
-def test_datastore_url_is_overridable(metadata_dir):
-    catalog = CatalogBuilder(
-        metadata_dir, datastore_url="https://example.org/ds/"
-    ).build()
-    record = _by_path(catalog)[GENOME]
-    assert record["base_url"].startswith("https://example.org/ds/Glycine")
+@pytest.mark.parametrize(
+    "datastore_url, expected",
+    [
+        (None, "https://data.legumeinfo.org"),
+        ("https://example.org/ds/", "https://example.org/ds"),
+    ],
+)
+def test_base_url_joins_the_datastore_url_and_collection_path(
+    metadata_dir, datastore_url, expected
+):
+    catalog = CatalogBuilder(metadata_dir, datastore_url=datastore_url).build()
+    assert catalog["datastore_url"] == expected
+    assert _by_path(catalog)[ANNOTATION]["base_url"] == f"{expected}/{ANNOTATION}"
 
 
 def test_write_round_trips(metadata_dir, tmp_path):
@@ -197,13 +307,15 @@ def test_write_round_trips(metadata_dir, tmp_path):
 def test_unreadable_readme_degrades_the_record_not_the_build(metadata_dir, write):
     """One malformed file must not sink a 1,000-collection build — and must not drop
     the collection either. A real datastore collection ships a README that is not
-    valid YAML; its files are still real and still worth cataloguing."""
+    valid YAML; its files are still real and still worth cataloguing. With no README
+    there is no abbrev, so no filename is predicted either."""
     broken = os.path.join(metadata_dir, "Glycine", "max", "maps", "Bad.map.X")
     write(os.path.join(broken, "README.Bad.map.X.yml"), "---\n: : not yaml : :\n")
     catalog = CatalogBuilder(metadata_dir).build()
     assert catalog["stats"]["collections"] == 4
     record = _by_path(catalog)["Glycine/max/maps/Bad.map.X"]
-    assert record["index_status"] == "unknown"  # no CHECKSUM either
+    assert record["index_status"] == "unknown"  # no CHECKSUM, nothing predictable
+    assert record["files"] == []
     assert "publication_doi" not in record  # nothing was invented
 
 
@@ -241,19 +353,32 @@ def test_a_bare_README_is_still_parsed(metadata_dir, write):
 
 
 def test_taxa_descriptions_are_ingested(metadata_dir, write):
-    """Common name and abbreviation live only in about_this_collection, so without
-    this a consumer cannot map 'soybean' onto a taxon at all."""
+    """Common name, taxid and abbreviation live only in about_this_collection, so
+    without this a consumer cannot map 'soybean' onto a taxon at all."""
     about = os.path.join(metadata_dir, "Glycine", "max", "about_this_collection")
     write(
         os.path.join(about, "description_Glycine_max.yml"),
         "---\ntaxid: 3847\ngenus: Glycine\nspecies: max\nabbrev: glyma\n"
-        "commonName: soybean\nresources:\n  - name: GlycineMine\n    URL: https://x\n",
+        "commonName: soybean\ndescription: Soybean.\n"
+        "resources:\n  - name: GlycineMine\n    URL: https://mines.legumeinfo.org/glycinemine\n"
+        "    description: InterMine for Glycine\n",
     )
     catalog = CatalogBuilder(metadata_dir).build()
-    entry = catalog["taxa"]["Glycine/max"]
-    assert entry["commonName"] == "soybean"
-    assert entry["abbrev"] == "glyma"
-    assert entry["resources"][0]["name"] == "GlycineMine"
+    assert catalog["taxa"]["Glycine/max"] == {
+        "taxid": 3847,
+        "abbrev": "glyma",
+        "commonName": "soybean",
+        "description": "Soybean.",
+        "genus": "Glycine",
+        "species": "max",
+        "resources": [
+            {
+                "name": "GlycineMine",
+                "URL": "https://mines.legumeinfo.org/glycinemine",
+                "description": "InterMine for Glycine",
+            }
+        ],
+    }
 
 
 def test_genus_level_description_lists_its_species(metadata_dir, write):
@@ -271,20 +396,6 @@ def test_genus_level_description_lists_its_species(metadata_dir, write):
 
 
 # --- file resolution for collections that publish no CHECKSUM -------------------------
-def test_offline_build_labels_files_as_predicted(catalog):
-    """Without --verify nothing is probed, so the label must not claim more."""
-    qtl = _by_path(catalog)[QTL]
-    assert qtl["index_status"] == "inferred"
-    assert qtl["files"]
-    assert {f["src"] for f in qtl["files"]} == {"predicted"}
-
-
-def test_checksum_files_are_labelled_authoritative(catalog):
-    annotation = _by_path(catalog)[ANNOTATION]
-    assert annotation["index_status"] == "known"
-    assert {f["src"] for f in annotation["files"]} == {"checksum"}
-
-
 def test_verify_keeps_only_files_that_exist(metadata_dir, monkeypatch):
     """--verify turns prediction into evidence: absent files are dropped and the
     survivors are relabelled, so a consumer can tell the two apart."""
@@ -298,7 +409,8 @@ def test_verify_keeps_only_files_that_exist(metadata_dir, monkeypatch):
     assert qtl["index_status"] == "verified"
     assert {f["n"] for f in qtl["files"]} == real
     assert {f["src"] for f in qtl["files"]} == {"verified"}
-    assert catalog["stats"]["probes"] == 4  # all four candidates were asked about
+    # All four candidates were asked about, and no index siblings: qtl is unindexed.
+    assert catalog["stats"]["probes"] == 4
     assert catalog["stats"]["verified_files"] == 2
 
 
