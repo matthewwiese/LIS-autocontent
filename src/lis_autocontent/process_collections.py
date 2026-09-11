@@ -71,12 +71,16 @@ class ProcessCollections:
         return False
 
     def head_remote(self, url):
-        """Uses requests.head to grab remote URL returns response.text otherwise returns False"""
+        """Uses requests.head to check a remote URL. Returns True if it exists, otherwise False.
+
+        A HEAD response has no body, so returning response.text here gave "" for every
+        file that exists, and callers treated each one as missing.
+        """
         logger = self.logger
-        response = requests.head(url, timeout=5)  # get remote object
+        response = requests.head(url, timeout=5)  # check remote object
         if response.status_code == 200:  # SUCCESS
-            return response.text
-        logger.debug(f"GET failed with status {response.status_code} for: {url}")
+            return True
+        logger.debug(f"HEAD failed with status {response.status_code} for: {url}")
         return False
 
     def parse_attributes(self, response_text):  # inherited from Sammyjava

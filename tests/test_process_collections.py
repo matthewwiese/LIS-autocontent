@@ -1,13 +1,16 @@
-"""Tests for which taxa a ProcessCollections run covers.
+"""Tests for the offline parts of ProcessCollections.
 
-Only taxon selection is tested here: it is offline. Everything past it fetches from
-the remote datastore and is exercised by running the CLI.
+Taxon selection needs no network. Remote existence checks are tested with requests
+stubbed out. Everything else fetches from the remote datastore and is exercised by
+running the CLI.
 """
 
 import logging
 import os
+from types import SimpleNamespace
 
 import pytest
+import requests
 import yaml
 
 from lis_autocontent.process_collections import ProcessCollections
@@ -65,3 +68,46 @@ def test_discovery_needs_a_clone(parser):
     parser.from_github = None
     with pytest.raises(SystemExit):
         parser.load_taxa()
+
+
+def _stub_head(status, asked):
+    """A requests.head replacement. Like the real thing, its response has no body."""
+
+    def fake_head(url, timeout=None):  # pylint: disable=unused-argument
+        asked.append(url)
+        return SimpleNamespace(status_code=status, text="")
+
+    return fake_head
+
+
+@pytest.mark.parametrize("status, exists", [(200, True), (404, False)])
+def test_head_remote_reports_existence_from_the_status(
+    parser, monkeypatch, status, exists
+):
+    """A HEAD response has no body, so returning its text ("") made every check fail."""
+    monkeypatch.setattr(requests, "head", _stub_head(status, []))
+    assert parser.head_remote("https://x/f.protein.faa.gz") is exists
+
+
+def test_annotations_yield_the_protein_files_that_exist(
+    parser, clone, write, monkeypatch
+):
+    """The regression: no protein or protein_primary file ever became a DSCensor node
+    or a BLAST database, because every existence check came back falsy."""
+    key = "CDCFrontier.gnm3.ann1.NPD7"
+    write(
+        os.path.join(
+            clone, "Cicer", "arietinum", "annotations", key, f"README.{key}.yml"
+        ),
+        f"identifier: {key}\nsynopsis: Chickpea annotation\n",
+    )
+    asked = []
+    monkeypatch.setattr(requests, "head", _stub_head(200, asked))
+    parser.add_collections("annotations", "Cicer", "arietinum")
+    base = f"https://data.legumeinfo.org/Cicer/arietinum/annotations/{key}/cicar.{key}"
+    assert asked == [f"{base}.protein_primary.faa.gz", f"{base}.protein.faa.gz"]
+    assert sorted(parser.files["annotations"]) == [
+        "cicar.CDCFrontier.gnm3.ann1",
+        "cicar.CDCFrontier.gnm3.ann1.protein",
+        "cicar.CDCFrontier.gnm3.ann1.protein_primary",
+    ]
