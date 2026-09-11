@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from catalog import (  # noqa: E402  pylint: disable=wrong-import-position
+    INDEX_SUFFIXES,
     NODE_README_FIELDS,
     README_FIELDS,
     SCHEMA_VERSION,
@@ -519,6 +520,68 @@ def test_types_documented_as_unindexed_are_not_probed_for_indexes(metadata_dir):
     builder = CatalogBuilder(metadata_dir)
     assert builder.type_is_indexed("qtl") is False
     assert builder.type_is_indexed("annotations") is True
+
+
+MARKERS_README = """---
+identifier: SoySNP50K.mrk.ABCD
+synopsis: Demo marker set
+scientific_name: Glycine max
+scientific_name_abbrev: glyma
+"""
+
+
+def _add_markers_collection(metadata_dir):
+    """A markers collection: no CHECKSUM, and a type that CAN carry index siblings."""
+    markers = os.path.join(
+        metadata_dir, "Glycine", "max", "markers", "SoySNP50K.mrk.ABCD"
+    )
+    _write(os.path.join(markers, "README.SoySNP50K.mrk.ABCD.yml"), MARKERS_README)
+    return "Glycine/max/markers/SoySNP50K.mrk.ABCD"
+
+
+def test_offline_index_status_of_an_indexable_type_is_unknown(metadata_dir):
+    """A predicted file of a type that can be indexed was never probed, so whether it is
+    streamable is unknown -- not "no index"."""
+    path = _add_markers_collection(metadata_dir)
+    record = _by_path(CatalogBuilder(metadata_dir).build())[path]
+    assert record["files"] == [
+        {"n": "glyma.SoySNP50K.mrk.ABCD.gff3.gz", "src": "predicted", "i_unknown": True}
+    ]
+
+
+def test_verify_attaches_the_index_siblings_that_exist(metadata_dir, monkeypatch):
+    """Under --verify the unknown is resolved: each surviving file is probed for the
+    siblings its extension allows, and only the ones found are recorded."""
+    path = _add_markers_collection(metadata_dir)
+    real = {"glyma.SoySNP50K.mrk.ABCD.gff3.gz", "glyma.SoySNP50K.mrk.ABCD.gff3.gz.tbi"}
+    builder = CatalogBuilder(metadata_dir, verify=True)
+    monkeypatch.setattr(
+        builder, "url_exists", lambda url: url.rsplit("/", 1)[-1] in real
+    )
+    catalog = builder.build()
+    assert _by_path(catalog)[path]["files"] == [
+        {"n": "glyma.SoySNP50K.mrk.ABCD.gff3.gz", "src": "verified", "i": [".tbi"]}
+    ]
+    # qtl: 4 file probes and no index probes (indexed: false); markers: 1 + .tbi/.csi.
+    assert catalog["stats"]["probes"] == 7
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("x.genome_main.fna.gz", (".fai",)),
+        ("x.protein.faa.gz", (".fai",)),
+        ("x.bam", (".bai", ".csi")),
+        ("x.cram", (".crai",)),
+        ("x.gene_models_main.gff3.gz", (".tbi", ".csi")),
+        ("x.vcf.gz", (".tbi", ".csi")),
+        ("x.unrecognised.bin", INDEX_SUFFIXES),
+    ],
+)
+def test_index_probes_are_limited_to_what_the_extension_allows(name, expected):
+    """Asking a .tsv.gz about a .bai is a guaranteed 404. An unrecognised type falls
+    back to asking about every sibling rather than none."""
+    assert CatalogBuilder.plausible_indexes(name) == expected
 
 
 def test_a_missing_vocabulary_degrades_to_no_prediction(metadata_dir, monkeypatch):

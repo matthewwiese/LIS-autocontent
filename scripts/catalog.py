@@ -257,6 +257,69 @@ class CatalogBuilder:
         except Exception:  # noqa: BLE001 - a 404 (or any failure) means "not there"
             return False
 
+    def attach_indexes(self, base_url, files):
+        """Probe each file for the index siblings its extension allows.
+
+        Only reached under --verify, and only for types that can carry indexes, so the
+        cost is a few dozen requests. Without it those files would have to be reported
+        as index-status-unknown.
+        """
+        jobs = []
+        for entry in files:
+            for suffix in self.plausible_indexes(entry["n"]):
+                jobs.append((entry, suffix))
+        if not jobs:
+            return
+        urls = ["{0}/{1}{2}".format(base_url.rstrip("/"), e["n"], s) for e, s in jobs]
+        with ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
+            found = list(pool.map(self.url_exists, urls))
+        self.stats["probes"] += len(urls)
+        for (entry, suffix), ok in zip(jobs, found):
+            if ok:
+                entry.setdefault("i", []).append(suffix)
+
+    @staticmethod
+    def plausible_indexes(name):
+        """Index suffixes worth probing for this filename.
+
+        A file's own type decides which siblings are even possible: .fai pairs with
+        FASTA, .bai/.csi with BAM, .crai with CRAM, .tbi/.csi with a bgzipped tabbed
+        file. Asking a .tsv.gz about a .bai is a guaranteed 404.
+        """
+        low = name.lower()
+        if low.endswith(
+            (
+                ".fa",
+                ".fa.gz",
+                ".fasta",
+                ".fasta.gz",
+                ".fna",
+                ".fna.gz",
+                ".faa",
+                ".faa.gz",
+            )
+        ):
+            return (".fai",)
+        if low.endswith(".bam"):
+            return (".bai", ".csi")
+        if low.endswith(".cram"):
+            return (".crai",)
+        if low.endswith(
+            (
+                ".vcf.gz",
+                ".bcf",
+                ".gff.gz",
+                ".gff3.gz",
+                ".gtf.gz",
+                ".bed.gz",
+                ".sam.gz",
+                ".tsv.gz",
+                ".txt.gz",
+            )
+        ):
+            return (".tbi", ".csi")
+        return INDEX_SUFFIXES
+
     def verify_files(self, base_url, names):
         """Keep the names that actually exist. Probes run concurrently."""
         if not names:
@@ -420,11 +483,18 @@ class CatalogBuilder:
                 files = [{"n": n, "src": SRC_PREDICTED} for n in predicted]
                 index_status = "inferred"
                 self.stats["predicted_files"] += len(files)
-            # Types documented as never carrying index siblings need no probing to
-            # know that none of these files is randomly accessible.
+            # Types documented as never carrying index siblings need no probing to know
+            # none of these files is randomly accessible. For the types that CAN carry
+            # them, an unprobed file's index status is genuinely unknown -- reporting it
+            # as "not indexed" would mark streamable data unreadable, which is the same
+            # mistake `index_status` exists to prevent. Verified: a markers .gff3.gz
+            # constructed this way does have a .tbi.
             if files and self.type_is_indexed(ctype):
-                for entry in files:
-                    entry["i_unknown"] = True
+                if self.verify:
+                    self.attach_indexes(base_url, files)
+                else:
+                    for entry in files:
+                        entry["i_unknown"] = True
 
         for record in files:
             extra = manifest.get(os.path.basename(record["n"]))
