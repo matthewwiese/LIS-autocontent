@@ -863,17 +863,67 @@ class ProcessCollections:
         if self.species_collections_handle:  # close species collections
             self.species_collections_handle.close()
 
+    def discover_genera(self):
+        """Return every genus in the datastore clone, sorted.
+
+        A directory counts as a genus only when it holds a GENUS description
+        file, which excludes non-taxonomic tops such as LEGUMES and .github.
+        """
+        root = pathlib.Path(self.from_github)
+        candidates = sorted(
+            entry.name
+            for entry in root.iterdir()
+            if entry.is_dir() and not entry.name.startswith(".")
+        )
+        genera = [
+            genus
+            for genus in candidates
+            if (
+                root
+                / genus
+                / "GENUS"
+                / "about_this_collection"
+                / f"description_{genus}.yml"
+            ).is_file()
+        ]
+        skipped = sorted(set(candidates) - set(genera))
+        if skipped:
+            self.logger.debug(f"Not genus directories, skipped: {skipped}")
+        self.logger.info(f"Discovered {len(genera)} genera: {genera}")
+        return genera
+
+    def load_taxa(self, target=None):
+        """Return the taxa to process, from a taxon list file or by discovery."""
+        if target and os.path.isdir(target):
+            self.logger.warning(
+                f"Taxon list {target} is a directory, discovering genera instead"
+            )
+            target = None
+        if target:
+            self.logger.info(f"Reading taxon list: {target}")
+            with open(target, "r", encoding="utf-8") as handle:
+                return yaml.load(handle.read(), Loader=yaml.FullLoader)
+        if not self.from_github:
+            self.logger.error(
+                "A taxon list is required when not reading a datastore-metadata clone"
+            )
+            sys.exit(1)
+        self.logger.info("No taxon list given, discovering all genera")
+        return [{"genus": genus} for genus in self.discover_genera()]
+
     def parse_collections(
-        self, target="../_data/taxon_list.yml", from_github="./datastore-metadata"
+        self, from_github="./datastore-metadata", target=None
     ):  # refactored from SammyJava
-        """Retrieve and output collections for jekyll site"""
+        """Retrieve and output collections for jekyll site.
+
+        from_github is the datastore-metadata clone to read. With no target,
+        every genus found there is processed; pass a taxon list yml to restrict
+        the run to a subset.
+        """
         if from_github:  # set to None if empty dir
             self.from_github = os.path.abspath(from_github)
         self.logger.debug(f"THIS IS GITHUB: {self.from_github}")
-        taxon_list = yaml.load(
-            open(target, "r", encoding="utf-8").read(), Loader=yaml.FullLoader
-        )  # load taxon list
-        for taxon in taxon_list:
+        for taxon in self.load_taxa(target):
             self.process_taxon(taxon)  # process taxon object
 
 
