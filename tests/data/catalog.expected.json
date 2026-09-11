@@ -1,0 +1,227 @@
+{
+  "schema": 1,
+  "datastore_url": "https://data.legumeinfo.org",
+  "stats": {
+    "collections": 5,
+    "files": 10,
+    "indexed_files": 3,
+    "with_doi": 3,
+    "index_unknown": 1,
+    "with_busco": 1,
+    "curated_symbols": 3,
+    "described_taxa": 2,
+    "pairwise_files": 1,
+    "paired_genomes": 2,
+    "predicted_files": 5,
+    "verified_files": 0,
+    "probes": 0
+  },
+  "taxa": {
+    "Glycine": {
+      "taxid": 3846,
+      "genus": "Glycine",
+      "species_in_genus": [
+        "max"
+      ]
+    },
+    "Glycine/max": {
+      "taxid": 3847,
+      "abbrev": "glyma",
+      "commonName": "soybean",
+      "genus": "Glycine",
+      "species": "max"
+    }
+  },
+  "pairwise": [
+    {
+      "a": "glyma.Wm82.gnm4",
+      "b": "phavu.G19833.gnm2",
+      "kind": "synteny",
+      "format": "gff3.gz",
+      "collection": "Glycine/max/synteny/Wm82.gnm4.synt.PXV3",
+      "file": "glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz",
+      "url": "https://data.legumeinfo.org/Glycine/max/synteny/Wm82.gnm4.synt.PXV3/glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz",
+      "i": [
+        ".tbi"
+      ]
+    }
+  ],
+  "gene_symbols": {
+    "glyma": {
+      "gmnark": {
+        "gene": "glyma.Wm82.gnm4.ann1.Glyma.12G040000",
+        "doi": "10.1000/demo.first",
+        "synopsis": "Demo nodulation phenotype"
+      },
+      "nts-1": {
+        "gene": "glyma.Wm82.gnm4.ann1.Glyma.12G040000",
+        "doi": "10.1000/demo.first",
+        "synopsis": "Demo nodulation phenotype"
+      },
+      "gmft2a": {
+        "gene": "glyma.Wm82.gnm4.ann1.Glyma.16G150700"
+      }
+    }
+  },
+  "collections": [
+    {
+      "path": "Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ",
+      "id": "Wm82.gnm4.ann1.T8TQ",
+      "type": "annotations",
+      "genus": "Glycine",
+      "species": "max",
+      "base_url": "https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ",
+      "index_status": "known",
+      "files": [
+        {
+          "n": "BUSCO/glyma.Wm82.gnm4.ann1.T8TQ.busco.fabales_odb10.short_summary.json",
+          "src": "checksum"
+        },
+        {
+          "n": "glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz",
+          "src": "checksum",
+          "i": [
+            ".tbi"
+          ]
+        },
+        {
+          "n": "glyma.Wm82.gnm4.ann1.T8TQ.legume.fam3.VLMQ.gfa.tsv.gz",
+          "src": "checksum"
+        },
+        {
+          "n": "glyma.Wm82.gnm4.ann1.T8TQ.protein_primary.faa.gz",
+          "src": "checksum",
+          "i": [
+            ".fai"
+          ],
+          "description": "Protein sequences - primary only",
+          "applications": [
+            "blast",
+            "mines"
+          ]
+        }
+      ],
+      "synopsis": "Glycine max Williams 82 annotation",
+      "scientific_name": "Glycine max",
+      "taxid": 3847,
+      "scientific_name_abbrev": "glyma",
+      "publication_doi": "10.1111/tpj.14500",
+      "license": "Open",
+      "chromosome_prefix": "Gm",
+      "supercontig_prefix": "scaffold",
+      "bioproject": "PRJNA19861",
+      "derived_from": [
+        "Wm82.gnm4.4PTR"
+      ],
+      "inherited": [
+        "chromosome_prefix",
+        "supercontig_prefix",
+        "bioproject"
+      ]
+    },
+    {
+      "path": "Glycine/max/genomes/Wm82.gnm4.4PTR",
+      "id": "Wm82.gnm4.4PTR",
+      "type": "genomes",
+      "genus": "Glycine",
+      "species": "max",
+      "base_url": "https://data.legumeinfo.org/Glycine/max/genomes/Wm82.gnm4.4PTR",
+      "index_status": "unknown",
+      "files": [],
+      "synopsis": "Glycine max Williams 82 genome assembly v4.0",
+      "scientific_name": "Glycine max",
+      "taxid": 3847,
+      "scientific_name_abbrev": "glyma",
+      "genotype": [
+        "Williams 82"
+      ],
+      "publication_doi": "10.1111/tpj.14500",
+      "publication_title": "Three reference-quality genome assemblies for soybean",
+      "license": "Open",
+      "chromosome_prefix": "Gm",
+      "supercontig_prefix": "scaffold",
+      "bioproject": "PRJNA19861"
+    },
+    {
+      "path": "Glycine/max/markers/SoySNP50K.mrk.ABCD",
+      "id": "SoySNP50K.mrk.ABCD",
+      "type": "markers",
+      "genus": "Glycine",
+      "species": "max",
+      "base_url": "https://data.legumeinfo.org/Glycine/max/markers/SoySNP50K.mrk.ABCD",
+      "index_status": "inferred",
+      "files": [
+        {
+          "n": "glyma.SoySNP50K.mrk.ABCD.gff3.gz",
+          "src": "predicted",
+          "i_unknown": true
+        }
+      ],
+      "synopsis": "Demo marker set",
+      "scientific_name": "Glycine max",
+      "scientific_name_abbrev": "glyma"
+    },
+    {
+      "path": "Glycine/max/qtl/Demo.qtl.X_1990",
+      "id": "Demo.qtl.X_1990",
+      "type": "qtl",
+      "genus": "Glycine",
+      "species": "max",
+      "base_url": "https://data.legumeinfo.org/Glycine/max/qtl/Demo.qtl.X_1990",
+      "index_status": "inferred",
+      "files": [
+        {
+          "n": "glyma.Demo.qtl.X_1990.obo.tsv.gz",
+          "src": "predicted"
+        },
+        {
+          "n": "glyma.Demo.qtl.X_1990.qtl.tsv.gz",
+          "src": "predicted"
+        },
+        {
+          "n": "glyma.Demo.qtl.X_1990.qtlmrk.tsv.gz",
+          "src": "predicted"
+        },
+        {
+          "n": "glyma.Demo.qtl.X_1990.trait.tsv.gz",
+          "src": "predicted"
+        }
+      ],
+      "synopsis": "Demo QTL study",
+      "scientific_name": "Glycine max",
+      "taxid": 3847,
+      "scientific_name_abbrev": "glyma",
+      "publication_doi": "10.1007/bf00226154",
+      "genetic_map": "GmComposite1999"
+    },
+    {
+      "path": "Glycine/max/synteny/Wm82.gnm4.synt.PXV3",
+      "id": "Wm82.gnm4.synt.PXV3",
+      "type": "synteny",
+      "genus": "Glycine",
+      "species": "max",
+      "base_url": "https://data.legumeinfo.org/Glycine/max/synteny/Wm82.gnm4.synt.PXV3",
+      "index_status": "known",
+      "files": [
+        {
+          "n": "glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz",
+          "src": "checksum",
+          "i": [
+            ".tbi"
+          ]
+        }
+      ],
+      "chromosome_prefix": "Gm",
+      "supercontig_prefix": "scaffold",
+      "bioproject": "PRJNA19861",
+      "derived_from": [
+        "Wm82.gnm4.4PTR"
+      ],
+      "inherited": [
+        "chromosome_prefix",
+        "supercontig_prefix",
+        "bioproject"
+      ]
+    }
+  ]
+}

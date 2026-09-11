@@ -58,31 +58,99 @@ def _by_path(catalog):
 
 
 # --- document shape ----------------------------------------------------------
+EXPECTED_CATALOG = os.path.join(
+    os.path.dirname(__file__), "data", "catalog.expected.json"
+)
+
+TRAITS = """---
+scientific_name: Glycine max
+gene_symbols:
+  - GmNARK
+  - NTS-1
+gene_model_full_id: glyma.Wm82.gnm4.ann1.Glyma.12G040000
+phenotype_synopsis: Demo nodulation phenotype
+references:
+  - citation: First demo reference
+    doi: 10.1000/demo.first
+  - citation: Second demo reference
+    doi: 10.1000/demo.second
+---
+scientific_name: Glycine max
+gene_symbols:
+  - GmFT2a
+gene_model_full_id: glyma.Wm82.gnm4.ann1.Glyma.16G150700
+references:
+  - citation: A reference without a DOI
+"""
+
+
+def _complete_the_tree(metadata_dir, write):
+    """Add the parts of the document no other fixture populates: a data file in a
+    subdirectory (1,127 real ones, all under BUSCO/), a synteny edge, curated gene
+    symbols and taxon descriptions."""
+    checksum = os.path.join(
+        metadata_dir, ANNOTATION, "CHECKSUM.Wm82.gnm4.ann1.T8TQ.md5"
+    )
+    with open(checksum, "a", encoding="utf-8") as handle:
+        handle.write(
+            f"\n{MD5}  ./BUSCO/glyma.Wm82.gnm4.ann1.T8TQ.busco.fabales_odb10"
+            ".short_summary.json\n"
+        )
+    synteny = os.path.join(metadata_dir, "Glycine/max/synteny/Wm82.gnm4.synt.PXV3")
+    partner = "glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz"
+    write(
+        os.path.join(synteny, "CHECKSUM.Wm82.gnm4.synt.PXV3.md5"),
+        f"{MD5}  ./{partner}\n{MD5}  ./{partner}.tbi\n",
+    )
+    write(
+        os.path.join(metadata_dir, "Glycine/max/gene_functions/glyma.traits.yml"),
+        TRAITS,
+    )
+    write(
+        os.path.join(
+            metadata_dir,
+            "Glycine/max/about_this_collection/description_Glycine_max.yml",
+        ),
+        "---\ntaxid: 3847\ngenus: Glycine\nspecies: max\nabbrev: glyma\n"
+        "commonName: soybean\n",
+    )
+    write(
+        os.path.join(
+            metadata_dir, "Glycine/GENUS/about_this_collection/description_Glycine.yml"
+        ),
+        "---\ntaxid: 3846\ngenus: Glycine\nspecies:\n  - max\n",
+    )
+
+
+@pytest.mark.usefixtures("markers_collection")
+def test_the_document_matches_the_reviewed_expected_output(metadata_dir, write):
+    """The catalog is a published contract, so the whole document is pinned against a
+    reviewed copy in tests/data. The named tests explain individual rules; this one
+    catches the changes they do not anticipate -- a renamed key, a lost subdirectory in
+    a file path, a dropped gene symbol, a miscounted stat, a reordered list.
+
+    When a change to the document is intended, regenerate the copy with
+    `LIS_UPDATE_EXPECTED=1 pytest tests/test_catalog.py` and review its diff before
+    committing it: regenerating without reading the diff defeats the test."""
+    _complete_the_tree(metadata_dir, write)
+    document = json.loads(json.dumps(CatalogBuilder(metadata_dir).build()))
+    for volatile in ("built_at", "source_commit"):  # clock and checkout dependent
+        del document[volatile]
+    if os.environ.get("LIS_UPDATE_EXPECTED"):
+        os.makedirs(os.path.dirname(EXPECTED_CATALOG), exist_ok=True)
+        with open(EXPECTED_CATALOG, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=2)
+            handle.write("\n")
+        pytest.skip(f"regenerated {EXPECTED_CATALOG}; review the diff")
+    with open(EXPECTED_CATALOG, encoding="utf-8") as handle:
+        assert document == json.load(handle)
+
+
 def test_document_carries_schema_and_build_stamp(catalog):
     """A consumer must be able to tell which catalog it is reasoning over."""
     assert catalog["schema"] == SCHEMA_VERSION
     assert catalog["built_at"].endswith("Z")
     assert "source_commit" in catalog  # None outside a git checkout, but present
-    assert catalog["stats"]["collections"] == 3
-
-
-def test_stats_summarise_the_document(catalog):
-    """Every counter is published, so every counter is pinned for the fixture tree."""
-    assert catalog["stats"] == {
-        "collections": 3,
-        "files": 7,  # 3 annotation data files + 4 predicted qtl files
-        "indexed_files": 2,  # protein .fai, gene models .tbi
-        "with_doi": 3,
-        "index_unknown": 1,  # the genome: no CHECKSUM, no vocabulary
-        "with_busco": 1,
-        "curated_symbols": 0,
-        "described_taxa": 0,
-        "pairwise_files": 0,
-        "paired_genomes": 0,
-        "predicted_files": 4,
-        "verified_files": 0,
-        "probes": 0,
-    }
 
 
 # --- README propagation ------------------------------------------------------
