@@ -2,7 +2,7 @@
   "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Flower.bw.json": {
     "bioproject": "PRJNA000001",
     "busco": null,
-    "canonical_type": "Singh_Garg_2013",
+    "canonical_type": "bw",
     "collection_type": "expression",
     "counts": null,
     "derived_from": [
@@ -10,7 +10,7 @@
     ],
     "expression_unit": "TPM",
     "filename": "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Flower.bw",
-    "filetype": "Singh_Garg_2013",
+    "filetype": "bw",
     "genotype": [
       "ICC4958"
     ],
@@ -26,7 +26,7 @@
   "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Young_leaves.bw.json": {
     "bioproject": "PRJNA000001",
     "busco": null,
-    "canonical_type": "Singh_Garg_2013",
+    "canonical_type": "bw",
     "collection_type": "expression",
     "counts": null,
     "derived_from": [
@@ -34,7 +34,7 @@
     ],
     "expression_unit": "TPM",
     "filename": "cicar.CDCFrontier.gnm3.ann1.expr.ICC4958.Singh_Garg_2013.Young_leaves.bw",
-    "filetype": "Singh_Garg_2013",
+    "filetype": "bw",
     "genotype": [
       "ICC4958"
     ],
@@ -135,7 +135,7 @@
   },
   "cicar.CDCFrontier.gnm3.x.cicec.S2Drd065.gnm1.PXV3.minimap2.paf.gz.json": {
     "busco": null,
-    "canonical_type": "minimap2",
+    "canonical_type": "paf",
     "collection_type": "genome_alignments",
     "counts": null,
     "derived_from": [
@@ -143,7 +143,7 @@
       "cicar.CDCFrontier.gnm3"
     ],
     "filename": "cicar.CDCFrontier.gnm3.x.cicec.S2Drd065.gnm1.PXV3.minimap2.paf.gz",
-    "filetype": "minimap2",
+    "filetype": "paf",
     "genus": "Cicer",
     "infraspecies": "CDCFrontier",
     "origin": "LIS",

@@ -134,9 +134,17 @@ class ProcessCollections:
                 parent = self.files[collection_type][dsfile]["parent"]
                 species = self.files[collection_type][dsfile]["species"]
                 infraspecies = self.files[collection_type][dsfile]["infraspecies"]
-                filetype = url.split(".")[
-                    -3
-                ]  # get file type from datastore file name filetype.X.gz
+                # The content type is normally the token before the extension, as in
+                # genome_main.fna.gz or protein.faa.gz. Bigwigs and PAFs have none there:
+                # the spec names them <collection>.<replicate_group>.bw and
+                # <A>.x.<B>.<KEY>[.<program>].paf.gz, so that token is a study name, a key
+                # or an aligner. For those, the file's format is the type.
+                if url.endswith(".bw"):
+                    filetype = "bw"
+                elif url.endswith(".paf.gz"):
+                    filetype = "paf"
+                else:
+                    filetype = url.split(".")[-3]  # filetype.X.gz
                 node = {
                     "filename": name,
                     "filetype": filetype,
