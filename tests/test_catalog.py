@@ -278,7 +278,9 @@ def test_genomes_do_not_derive_from_themselves(catalog):
 def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write):
     """A pairwise file is stored once, under its reference genome; the catalog lifts
     synteny and whole-genome alignments into one edge list sorted by genome pair,
-    keeping any duplication epoch. The alignment collection sorts first on disk, so the
+    keeping any duplication epoch. Alignments come named both with and without their
+    aligner (`...LXVF.bam`, `...PXV3.minimap2.bam`); a pattern that only knew the first
+    dropped every Cicer alignment. The alignment collection sorts first on disk, so the
     expected order below only holds if the list is actually sorted."""
     synteny = "Glycine/max/synteny/Wm82.gnm4.synt.PXV3"
     partner = "glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz"
@@ -290,10 +292,17 @@ def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write)
         ),
     )
     alignments = "Glycine/max/genome_alignments/Wm82.gnm4.wga.LXVF"
-    stem = "glyma.Wm82.gnm4.x.vigun.IT97K-499-35.gnm1.LXVF"
+    stems = (
+        "glyma.Wm82.gnm4.x.vigun.IT97K-499-35.gnm1.LXVF",
+        "glyma.Wm82.gnm4.x.glyma.Lee.gnm1.LXVF.minimap2",
+    )
     write(
         os.path.join(metadata_dir, alignments, "CHECKSUM.Wm82.gnm4.wga.LXVF.md5"),
-        "\n".join(f"{MD5}  ./{stem}.{ext}" for ext in ("paf.gz", "bam", "bam.bai")),
+        "\n".join(
+            f"{MD5}  ./{stem}.{ext}"
+            for stem in stems
+            for ext in ("paf.gz", "bam", "bam.bai")
+        ),
     )
     pairs = CatalogBuilder(metadata_dir).build()["pairwise"]
     assert [
@@ -308,6 +317,24 @@ def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write)
         )
         for p in pairs
     ] == [
+        (
+            "glyma.Wm82.gnm4",
+            "glyma.Lee.gnm1",
+            "alignment",
+            "bam",
+            None,
+            None,
+            [".bai"],
+        ),
+        (
+            "glyma.Wm82.gnm4",
+            "glyma.Lee.gnm1",
+            "alignment",
+            "paf.gz",
+            None,
+            None,
+            None,
+        ),
         (
             "glyma.Wm82.gnm4",
             "glyma.Wm82.gnm4",
@@ -345,8 +372,9 @@ def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write)
             None,
         ),
     ]
-    assert pairs[1]["url"] == f"https://data.legumeinfo.org/{synteny}/{partner}"
-    assert pairs[3]["collection"] == alignments
+    assert pairs[1]["file"] == f"{stems[1]}.paf.gz"
+    assert pairs[3]["url"] == f"https://data.legumeinfo.org/{synteny}/{partner}"
+    assert pairs[5]["collection"] == alignments
 
 
 # --- urls and output ---------------------------------------------------------

@@ -126,13 +126,14 @@ NODE_README_FIELDS = (
 # derived_from edge is the whole reason the index is a graph and not a table.
 INHERITED_FIELDS = ("chromosome_prefix", "supercontig_prefix", "bioproject")
 
-# <A>.x.<B>[.<epoch>].<KEY>.<ext>; see DatastoreIndex.pairwise_relationships.
+# <A>.x.<B>[.<epoch>].<KEY>[.<program>].<ext>; see DatastoreIndex.pairwise_relationships.
 PAIRWISE_PATTERN = re.compile(
     r"^(?P<a>[a-z]{4,6}\.[A-Za-z0-9_-]+\.gnm\d+)"
     r"\.x\."
     r"(?P<b>[a-z]{4,6}\.[A-Za-z0-9_-]+\.gnm\d+)"
     r"(?P<epoch>\.[A-Za-z0-9_]+)?"
     r"\.(?P<key>[A-Za-z0-9]{4})"
+    r"(?:\.[A-Za-z0-9_-]+)?"  # program, e.g. Cicer's "...PXV3.minimap2.paf.gz"
     r"\.(?P<ext>gff3\.gz|paf\.gz|bam)$"
 )
 
@@ -771,9 +772,11 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
     def pairwise_relationships(self):
         """Genome pairs, derived from the filenames of synteny and alignment files.
 
-        A pairwise file is named ``<A>.x.<B>[.<epoch>].<KEY>.<ext>`` and is stored ONCE,
-        under whichever genome is the reference. So a genome's relationships live in two
-        places: its own collection (as A) and other species' collections (as B). A
+        A pairwise file is named ``<A>.x.<B>[.<epoch>].<KEY>[.<program>].<ext>`` -- some
+        alignments name their aligner, as in ``...x.cicec.S2Drd065.gnm1.PXV3.minimap2.bam``
+        -- and is stored ONCE, under whichever genome is the reference. So a genome's
+        relationships live in two places: its own collection (as A) and other species'
+        collections (as B). A
         consumer that reads only a genome's own collection silently misses half its
         synteny -- and, for a genome with no collection of its own (Medicago has none),
         all of it.
