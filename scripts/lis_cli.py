@@ -240,7 +240,7 @@ def populate_blast(taxa_list, blast_out, from_github, cmds_only, log_file, log_l
     help="""Log Level to output messages. (default: INFO)""",
 )
 def populate_catalog(
-    from_github, catalog_out, datastore_url, indent, log_file, log_level
+    from_github, catalog_out, datastore_url, indent, verify, log_file, log_level
 ):
     """CLI entry for populate-catalog
 
