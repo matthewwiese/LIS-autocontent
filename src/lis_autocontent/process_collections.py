@@ -314,7 +314,9 @@ class ProcessCollections:
             "N50": n50,
             "allbases": all_bases,
             "gapbases": gap_bases,
-            "gaps": contigs - 1,  # this is a hack for now with the gaps value
+            # BUSCO counts contigs by splitting scaffolds at runs of Ns, so every gap
+            # adds one contig to its scaffold: gaps = contigs - scaffolds.
+            "gaps": contigs - records,
         }
         gff_return = (
             {}
