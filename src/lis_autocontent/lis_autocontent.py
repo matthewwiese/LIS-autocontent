@@ -1,7 +1,7 @@
 """Entry point executable for the CLI. Gets added to PATH on python setup.py install"""
 
 import click
-import lis_cli
+from . import lis_cli
 
 
 @click.group()

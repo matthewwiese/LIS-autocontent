@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lis-autocontent"
+version = "0.1.0"
+description = "Scrapes the LIS datastore and populates various configs and databases for deployment"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Legume Information System" }]
+keywords = ["bioinformatics", "legume", "jbrowse", "blast", "jekyll"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+# Only direct imports belong here. certifi, charset-normalizer, idna and
+# urllib3 are transitive dependencies of requests and resolve automatically.
+dependencies = [
+    "click>=8.1",
+    "PyYAML>=6.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "pre-commit",
+    "pylint",
+    "pytest",
+]
+
+[project.scripts]
+lis-autocontent = "lis_autocontent.lis_autocontent:cli_entry_point"
+
+[project.urls]
+Homepage = "https://github.com/legumeinfo/LIS-autocontent"
+Issues = "https://github.com/legumeinfo/LIS-autocontent/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Non-Python files the package reads at runtime.
+[tool.setuptools.package-data]
+lis_autocontent = ["filetypes.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.black]
+target-version = ["py39"]
+
+[tool.pylint.format]
+max-line-length = 110
+
+[tool.pylint.main]
+fail-under = 8

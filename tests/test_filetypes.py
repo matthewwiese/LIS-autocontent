@@ -1,6 +1,6 @@
 """Guard the vendored file-content vocabulary against drift.
 
-`scripts/filetypes.yml` is a copy of what datastore-specifications documents in its
+`src/lis_autocontent/filetypes.yml` is a copy of what datastore-specifications documents in its
 template tree (Genus/species/<type>/<content>.md). A copy that silently falls behind is
 worse than no copy: predictions would quietly stop covering a content type, and the
 files would disappear from the catalog with no signal.
@@ -9,17 +9,17 @@ The network check is skipped when GitHub is unreachable, so the suite stays runn
 offline; the structural checks always run.
 """
 
-import os
 import urllib.request
 
 import pytest
 import yaml
 
+from lis_autocontent.catalog import FILETYPES_PATH as FILETYPES
+
 SPEC_TREE = (
     "https://api.github.com/repos/legumeinfo/datastore-specifications/"
     "git/trees/main?recursive=1"
 )
-FILETYPES = os.path.join(os.path.dirname(__file__), "..", "scripts", "filetypes.yml")
 
 
 @pytest.fixture(name="vocabulary")

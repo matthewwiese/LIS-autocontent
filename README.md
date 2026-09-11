@@ -1,36 +1,32 @@
 # lis-autocontent
-Scrapes the LIS datastore (https://data.legumeinfo.org) and populates various configs and databases for deployment
+Populates various configs and databases for deployment from the datastore-meta data github.
 
 ## Reqiurements
 
 1. JBrowse2 (https://jbrowse.org/jb2/docs/combined/)
 2. NCBI-BLAST+ (https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/)
-3. Python3.7+
+3. Python3.10+
 
 ## Quick Install With pip
 
 1. Create a virtual environment for python3. `python3 -m venv lis_autocontent_env` (optional)
 2. Source environment. `. ./lis_autocontent_env/bin/activate` (optional)
-3. pip install from pypi. `pip install lis-autocontent`
+3. pip install from the repo. `cd LIS-autocontent;pip install .`
 
 ## Developer Install
 
 1. Clone repository. `git clone https://github.com/legumeinfo/LIS-autocontent.git`
 2. Create a virtual environment for python3 `python3 -m venv lis_autocontent_env`  (optional)
 3. Source virtual environment `. ./lis_autocontent_env/bin/activate`  (optional)
-4. CD into repo and install requirements. `cd LIS-autocontent/;pip install -r requirements.txt`  (optional)
-5. Install Black and pre-commit for git hooks. `pip install black pre-commit`
-6. Initialize pre-commit (if you haven't already). `pre-commit install`
-7. Build package locally. `python setup.py build` (optional)
-8. Install package into env and add to PATH. `python setup.py install` (optional)
+4. Install Black and pre-commit for git hooks. `pip install black pre-commit`
+5. Initialize pre-commit (if you haven't already). `pip install pre-commit;pre-commit install`
+6. Build package locally. `python setup.py build` (optional)
 
 ## Run
 
 ```
 (lis_autocontent_env) $ lis-autocontent --help
 Usage: lis-autocontent [OPTIONS] COMMAND [ARGS]...
-
-  Click Group Object to Attach Commands.
 
 Options:
   --help  Show this message and exit.
@@ -68,7 +64,7 @@ Roughly 45% of collections (nearly every `qtl`, `gwas` and `maps` one) publish n
 CHECKSUM, and CHECKSUM is the only enumeration that lists a collection's files. For
 those, `populate-catalog` builds the file list from the datastore's own documented
 convention -- `{abbrev}.{identifier}.{content}.{ext}`, with the content vocabulary
-vendored in [`scripts/filetypes.yml`](scripts/filetypes.yml) from
+vendored in [`src/lis_autocontent/filetypes.yml`](src/lis_autocontent/filetypes.yml) from
 [datastore-specifications](https://github.com/legumeinfo/datastore-specifications).
 
 Add `--verify` to confirm each constructed filename with a HEAD request before it

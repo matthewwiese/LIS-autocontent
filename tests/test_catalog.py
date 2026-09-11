@@ -7,13 +7,10 @@ touched, which is the property the catalog build is supposed to guarantee.
 
 import json
 import os
-import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-
-from catalog import (  # noqa: E402  pylint: disable=wrong-import-position
+from lis_autocontent.catalog import (
     INDEX_SUFFIXES,
     NODE_README_FIELDS,
     README_FIELDS,
