@@ -17,6 +17,7 @@ def cli_entry_point():
     cli.add_command(lis_cli.populate_blast)
     cli.add_command(lis_cli.populate_dscensor)
     cli.add_command(lis_cli.populate_catalog)
+    cli.add_command(lis_cli.populate_divbrowse)
     cli()  # invoke cli
 
 

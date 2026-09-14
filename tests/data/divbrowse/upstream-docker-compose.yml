@@ -1,0 +1,57 @@
+# Divbrowse Docker Compose
+#
+# Just run: docker compose up -d
+#
+# On first start, each service will automatically:
+#   1. Download VCF and GFF3 from the specified URLs
+#   2. Convert VCF to Zarr format
+#   3. Generate configuration
+#   4. Start the server
+#
+# Data is persisted in ./data/<name>/ directories.
+
+services:
+  divbrowse-gnm4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm4.div.Song_Hyten_2015/glyma.Wm82.gnm4.div.Song_Hyten_2015.vcf.gz
+      - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ/glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz
+      - CHROM_PATTERN=glyma\.Wm82\.gnm4\.Gm[0-9]+
+      - BASE_URL=https://divbrowse.soybase.org/Wm82.gnm4.div.Song_Hyten_2015/
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/gnm4:/opt/divbrowse
+    restart: unless-stopped
+
+  divbrowse-gnm5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm5.div.Song_Hyten_2015/glyma.Wm82.gnm5.div.Song_Hyten_2015.vcf.gz
+      - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm5.ann1.J7HW/glyma.Wm82.gnm5.ann1.J7HW.gene_models_main.gff3.gz
+      - CHROM_PATTERN=glyma\.Wm82\.gnm5\.Chr[0-9]+
+      - BASE_URL=https://divbrowse.soybase.org/Wm82.gnm5.div.Song_Hyten_2015/
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./data/gnm5:/opt/divbrowse
+    restart: unless-stopped
+
+  divbrowse-gnm6:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm6.div.Song_Hyten_2015/glyma.Wm82.gnm6.div.Song_Hyten_2015.vcf.gz
+      - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm6.ann1.PKSW/glyma.Wm82.gnm6.ann1.PKSW.gene_models_main.gff3.gz
+      - CHROM_PATTERN=glyma\.Wm82\.gnm6\.Gm[0-9]+
+      - BASE_URL=https://divbrowse.soybase.org/Wm82.gnm6.div.Song_Hyten_2015/
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./data/gnm6:/opt/divbrowse
+    restart: unless-stopped

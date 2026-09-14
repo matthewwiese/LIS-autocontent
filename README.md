@@ -40,6 +40,7 @@ Options:
 Commands:
   populate-blast     CLI entry for populate-blast
   populate-catalog   CLI entry for populate-catalog
+  populate-divbrowse CLI entry for populate-divbrowse
   populate-dscensor  CLI entry for populate-dscensor
   populate-jbrowse2  CLI entry for populate-jbrowse2
   populate-jekyll    CLI entry for populate-jekyll
@@ -111,3 +112,29 @@ Two properties worth preserving if you change it:
   empty file list says nothing about whether indexes exist. Roughly 45% of
   collections (nearly every `qtl` and `gwas` one) are `"unknown"`. Collapsing that
   into "no indexes" would report streamable data as unreadable.
+
+## Building a Divbrowse compose file
+
+`populate-divbrowse` writes a [Divbrowse](https://github.com/legumeinfo/divbrowse)
+`docker-compose.yml` with one service per diversity collection, offline from a
+`datastore-metadata` checkout:
+
+```
+lis-autocontent populate-divbrowse --from_github ./datastore-metadata \
+    --collection Wm82.gnm4.div.Song_Hyten_2015 \
+    --collection Wm82.gnm5.div.Song_Hyten_2015 \
+    --collection Wm82.gnm6.div.Song_Hyten_2015 \
+    --compose_out ../divbrowse/docker-compose.yml
+```
+
+Each service gets the collection's VCF, the `gene_models_main` GFF3 of its assembly's
+annotation, a `CHROM_PATTERN` built from the genome's `chromosome_prefix`, and a
+`BASE_URL` under `--base_url` (default `https://divbrowse.soybase.org`); host ports start
+at `--port` (default 8080). The services build from the Divbrowse `Dockerfile`, so write
+the file to the root of a divbrowse checkout. Service names are the collection
+identifier in lowercase, because Docker image names must be lowercase; data directories
+keep the identifier as-is.
+
+A collection this format can't express stops the command with the reason, and nothing
+is written: several VCFs or none, no linked genome assembly, more than one annotation,
+or a `chromosome_prefix` that isn't a single prefix.

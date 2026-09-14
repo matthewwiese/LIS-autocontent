@@ -2,10 +2,13 @@
 
 #!/usr/bin/env python3
 
+import os
 import sys
 import logging
 import click
 from .catalog import CatalogBuilder
+from .datastore_files import DatastoreIndex
+from .divbrowse import DivbrowseError, compose_file
 from .process_collections import ProcessCollections
 
 
@@ -262,3 +265,85 @@ def populate_catalog(
         ),
     )
     builder.write(catalog_out, indent=indent or None)
+
+
+@click.command()
+@click.option(
+    "--collection",
+    "collections",
+    multiple=True,
+    required=True,
+    help="""Diversity collection to serve, by identifier (e.g. Wm82.gnm4.div.Song_Hyten_2015).
+    Repeat for several; services are written in the order given.""",
+)
+@click.option(
+    "--from_github",
+    default="./datastore-metadata",
+    help="""Path to datastore-metadata github directory. (Default: ./datastore-metadata).""",
+)
+@click.option(
+    "--compose_out",
+    default="./docker-compose.yml",
+    help="""Where to write the compose file. Its services build from the Dockerfile beside
+    it, so write it to the root of a legumeinfo/divbrowse checkout.
+    (Default: ./docker-compose.yml)""",
+)
+@click.option(
+    "--datastore_url",
+    default="https://data.legumeinfo.org",
+    help="""URL the VCF and GFF3 links are built against.""",
+)
+@click.option(
+    "--base_url",
+    default="https://divbrowse.soybase.org",
+    help="""Public URL the Divbrowse instances are served under; each service gets
+    <base_url>/<collection>/. (Default: https://divbrowse.soybase.org)""",
+)
+@click.option(
+    "--port",
+    default=8080,
+    type=int,
+    help="""Host port of the first service; each further service takes the next one.
+    (Default: 8080)""",
+)
+@click.option(
+    "--log_file",
+    default="./populate-divbrowse.log",
+    help="""Log file to output messages. (default: ./populate-divbrowse.log)""",
+)
+@click.option(
+    "--log_level",
+    default="INFO",
+    help="""Log Level to output messages. (default: INFO)""",
+)
+def populate_divbrowse(
+    collections,
+    from_github,
+    compose_out,
+    datastore_url,
+    base_url,
+    port,
+    log_file,
+    log_level,
+):
+    """CLI entry for populate-divbrowse
+
+    Writes a Divbrowse docker-compose.yml with one service per diversity collection,
+    built offline from a datastore-metadata checkout. A collection the format can't
+    express stops the command without writing anything.
+    """
+    logger = setup_logging(log_file, log_level, "populate-divbrowse")
+    index = DatastoreIndex(
+        from_github, logger=logger, datastore_url=datastore_url
+    ).build()
+    try:
+        text = compose_file(index, collections, base_url=base_url, first_port=port)
+    except DivbrowseError as err:
+        logger.error("not writing %s:\n%s", compose_out, err)
+        raise click.ClickException(
+            f"cannot build a Divbrowse service for:\n{err}"
+        ) from err
+    os.makedirs(os.path.dirname(os.path.abspath(compose_out)), exist_ok=True)
+    with open(compose_out, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    logger.info("wrote %s with %s services", compose_out, len(collections))
