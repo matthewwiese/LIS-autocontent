@@ -138,3 +138,51 @@ keep the identifier as-is.
 A collection this format can't express stops the command with the reason, and nothing
 is written: several VCFs or none, no linked genome assembly, more than one annotation,
 or a `chromosome_prefix` that isn't a single prefix.
+
+### Building it on GitHub Actions
+
+`.github/workflows/populate-divbrowse.yml` builds the compose file for the collections
+listed in [`.github/divbrowse-collections.txt`](.github/divbrowse-collections.txt) (one
+identifier per line, in service order) against the current `datastore-metadata` `main`,
+stores it as a workflow artifact, and then notifies an external endpoint. Trigger it with
+a `repository_dispatch` event of type `populate-divbrowse`, using a token allowed to
+create dispatch events on this repository (a classic token needs the `public_repo`
+scope):
+
+```
+gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-divbrowse
+```
+
+GitHub only runs `repository_dispatch` workflows that exist on the default branch.
+
+Once the artifact is uploaded, the workflow POSTs JSON to the URL in the
+`DIVBROWSE_WEBHOOK_URL` repository variable (default `https://example.com`, which rejects
+POSTs, so runs fail at that step until the variable is set):
+
+```json
+{
+  "event": "divbrowse-compose-built",
+  "repository": "legumeinfo/LIS-autocontent",
+  "commit": "<LIS-autocontent commit>",
+  "datastore_metadata_commit": "<datastore-metadata commit>",
+  "run_url": "https://github.com/legumeinfo/LIS-autocontent/actions/runs/<run id>",
+  "collections": ["Wm82.gnm4.div.Song_Hyten_2015", "..."],
+  "artifact": {
+    "id": 1234,
+    "name": "docker-compose.yml",
+    "url": "https://github.com/legumeinfo/LIS-autocontent/actions/runs/<run id>/artifacts/1234",
+    "download_url": "https://api.github.com/repos/legumeinfo/LIS-autocontent/actions/artifacts/1234/zip",
+    "sha256": "<digest of the uploaded file>"
+  }
+}
+```
+
+GitHub artifacts can't be downloaded anonymously, so the receiver fetches
+`artifact.download_url` with its own GitHub token that can read this repository;
+`artifact.url` is the same artifact for a signed-in browser. If the
+`DIVBROWSE_WEBHOOK_SECRET` secret is set, the body is signed the way GitHub signs its
+webhooks: `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, keyed by the secret>`.
+
+A collection that can't be built fails the run before anything is uploaded or sent. A
+webhook the endpoint rejects also fails the run; only timeouts, refused connections and
+408/429/5xx responses are retried.

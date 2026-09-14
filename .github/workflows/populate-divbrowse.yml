@@ -1,0 +1,130 @@
+name: Populate Divbrowse
+
+# Builds the Divbrowse docker-compose.yml for the collections listed in
+# .github/divbrowse-collections.txt, stores it as a workflow artifact, then POSTs where to
+# find it to the endpoint in the DIVBROWSE_WEBHOOK_URL repository variable.
+#
+# Trigger it with a repository_dispatch event of type populate-divbrowse, e.g.
+#   gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-divbrowse
+# GitHub only runs repository_dispatch workflows that exist on the default branch.
+
+on:
+  repository_dispatch:
+    types: [populate-divbrowse]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: populate-divbrowse
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  divbrowse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check out datastore-metadata
+        uses: actions/checkout@v7
+        with:
+          repository: legumeinfo/datastore-metadata
+          path: datastore-metadata
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install lis-autocontent
+        run: pip install .
+
+      # A collection the Divbrowse format can't express makes populate-divbrowse exit
+      # non-zero with the reason, which fails the run before anything is uploaded or sent.
+      - name: Build docker-compose.yml
+        id: build
+        run: |
+          mapfile -t collections < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' .github/divbrowse-collections.txt | grep -v '^$' || true)
+          if [ "${#collections[@]}" -eq 0 ]; then
+            echo "::error file=.github/divbrowse-collections.txt::no collections are listed"
+            exit 1
+          fi
+          args=()
+          for identifier in "${collections[@]}"; do
+            args+=(--collection "$identifier")
+          done
+          lis-autocontent populate-divbrowse \
+            --from_github datastore-metadata \
+            --compose_out divbrowse/docker-compose.yml \
+            --log_file populate-divbrowse.log \
+            "${args[@]}"
+          {
+            echo "datastore_commit=$(git -C datastore-metadata rev-parse HEAD)"
+            echo "collections=$(printf '%s\n' "${collections[@]}" | jq -R . | jq -cs .)"
+          } >> "$GITHUB_OUTPUT"
+
+      # Unzipped, so the artifact is the YAML itself. Its name is the file's name.
+      - name: Upload docker-compose.yml
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          path: divbrowse/docker-compose.yml
+          archive: false
+          if-no-files-found: error
+
+      # Artifacts can't be downloaded anonymously: the receiver needs a GitHub token with
+      # read access to this repository to fetch download_url.
+      - name: Notify webhook
+        env:
+          WEBHOOK_URL: ${{ vars.DIVBROWSE_WEBHOOK_URL || 'https://example.com' }}
+          WEBHOOK_SECRET: ${{ secrets.DIVBROWSE_WEBHOOK_SECRET }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          DATASTORE_COMMIT: ${{ steps.build.outputs.datastore_commit }}
+          COLLECTIONS: ${{ steps.build.outputs.collections }}
+        run: |
+          payload=$(jq -cn \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --arg datastore_commit "$DATASTORE_COMMIT" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --argjson collections "$COLLECTIONS" \
+            --argjson artifact_id "$ARTIFACT_ID" \
+            --arg artifact_url "$ARTIFACT_URL" \
+            --arg download_url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            --arg sha256 "$ARTIFACT_DIGEST" \
+            '{
+              event: "divbrowse-compose-built",
+              repository: $repository,
+              commit: $commit,
+              datastore_metadata_commit: $datastore_commit,
+              run_url: $run_url,
+              collections: $collections,
+              artifact: {
+                id: $artifact_id,
+                name: "docker-compose.yml",
+                url: $artifact_url,
+                download_url: $download_url,
+                sha256: $sha256
+              }
+            }')
+          headers=(
+            -H "Content-Type: application/json"
+            -H "User-Agent: lis-autocontent-populate-divbrowse"
+          )
+          if [ -n "$WEBHOOK_SECRET" ]; then
+            # Signed like GitHub's own webhooks: HMAC-SHA256 of the exact body sent.
+            signature=$(printf '%s' "$payload" | python3 -c 'import hashlib, hmac, os, sys; print(hmac.new(os.environ["WEBHOOK_SECRET"].encode(), sys.stdin.buffer.read(), hashlib.sha256).hexdigest())')
+            headers+=(-H "X-Hub-Signature-256: sha256=$signature")
+          fi
+          echo "$payload" | jq .
+          # Any non-2xx response fails the run, so a missed notification is visible.
+          # Only transient failures (timeouts, refused connections, 408/429/5xx) are
+          # retried; a rejection such as 405 won't change on a second attempt.
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            --retry 3 --retry-connrefused \
+            -X POST "${headers[@]}" --data-binary "$payload" "$WEBHOOK_URL"
