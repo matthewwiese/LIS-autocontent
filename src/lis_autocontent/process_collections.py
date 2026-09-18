@@ -27,10 +27,10 @@ class ProcessCollections:
         self.logger = logger
         if self.logger:
             self.logger.info("logger initialized")
-        else:  # logger object required
+        else:
             print("logger required to initialize process_collections")
             sys.exit(1)
-        self.from_github = None  # read from github
+        self.from_github = None
         self.collections = []  # stores all collections from self.parse_attributes
         self.datastore_url = datastore_url  # URL to search for collections
         self.jbrowse_url = jbrowse_url  # URL to append jbrowse2 sessions
@@ -273,13 +273,16 @@ class ProcessCollections:
         if out_dir:  # set output directory
             self.out_dir = out_dir
         pathlib.Path(self.out_dir).mkdir(parents=True, exist_ok=True)
+        self.file_objects = []  # reset so repeated calls do not duplicate nodes
         self.process_collections(True, "dscensor")  # process collections for DSCensor
         for node in self.file_objects:  # write all processed objects to node files
-            node_out = open(
-                f'{self.out_dir}/{node["filename"]}.json', "w", encoding="utf-8"
-            )  # file to write node to
-            node_out.write(json.dumps(node))
-            node_out.close()
+            node_file = f'{self.out_dir}/{node["filename"]}.json'
+            with open(node_file, "w", encoding="utf-8") as node_out:
+                json.dump(node, node_out)
+            self.logger.debug(f"Wrote DSCensor node: {node_file}")
+        self.logger.info(
+            f"Wrote {len(self.file_objects)} DSCensor nodes to {self.out_dir}"
+        )
 
     def parse_busco(self, busco_url):
         """Grab BUSCOs from remote busco_url"""
@@ -948,9 +951,17 @@ class ProcessCollections:
         every genus found there is processed; pass a taxon list yml to restrict
         the run to a subset.
         """
-        if from_github:  # set to None if empty dir
+        if from_github and os.path.isdir(from_github):  # use local clone
             self.from_github = os.path.abspath(from_github)
-        self.logger.debug(f"THIS IS GITHUB: {self.from_github}")
+            self.logger.info(
+                f"Reading from local datastore-metadata: {self.from_github}"
+            )
+        else:  # fall back to the remote datastore
+            self.from_github = None
+            if from_github:
+                self.logger.warning(
+                    f"{from_github} is not a directory, reading from {self.datastore_url}"
+                )
         for taxon in self.load_taxa(target):
             self.process_taxon(taxon)  # process taxon object
 
