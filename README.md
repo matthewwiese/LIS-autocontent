@@ -116,7 +116,7 @@ Two properties worth preserving if you change it:
 ### Building it on GitHub Actions
 
 `.github/workflows/populate-catalog.yml` builds `catalog.json` for the whole store from
-the current `datastore-metadata` `main`, stores it as a workflow artifact, and then
+the current `datastore-metadata` `main`, publishes it as a GitHub release asset, and then
 notifies an external endpoint. Trigger it from the repository's Actions tab, or on the
 command line:
 
@@ -143,7 +143,22 @@ The workflow builds offline, without `--verify`, so the same `datastore-metadata
 always gives the same catalog: a probe that fails for any reason reads as "file absent"
 and would drop that file from what gets published.
 
-Once the artifact is uploaded, the workflow POSTs JSON to the URL in the `WEBHOOK_URL`
+Each run publishes its own release, tagged with the build time and the
+`datastore-metadata` commit that determined the content (for example
+`catalog-20260918-120435-04d9d86`), carrying `catalog.json` as its only asset. Every past
+catalog stays fetchable at its own tag, and the newest one is always at a stable URL:
+
+```
+https://github.com/legumeinfo/LIS-autocontent/releases/latest/download/catalog.json
+```
+
+Unlike a workflow artifact, a release asset downloads without authentication, so any
+consumer can fetch it with plain `curl` from a public repository. The run needs
+`contents: write` to create the release. Seconds are part of the tag so that a re-run
+against the same `datastore-metadata` commit gets its own release: `gh release create`
+fails on an existing tag rather than overwriting a published catalog.
+
+Once the release is published, the workflow POSTs JSON to the URL in the `WEBHOOK_URL`
 repository variable (default `https://example.com`, which rejects POSTs, so runs fail at
 that step until the variable is set):
 
@@ -154,23 +169,26 @@ that step until the variable is set):
   "commit": "<LIS-autocontent commit>",
   "datastore_metadata_commit": "<datastore-metadata commit>",
   "run_url": "https://github.com/legumeinfo/LIS-autocontent/actions/runs/<run id>",
-  "artifact": {
-    "id": 1234,
-    "name": "catalog.json",
-    "url": "https://github.com/legumeinfo/LIS-autocontent/actions/runs/<run id>/artifacts/1234",
-    "download_url": "https://api.github.com/repos/legumeinfo/LIS-autocontent/actions/artifacts/1234/zip",
-    "sha256": "<digest of the uploaded file>"
+  "release": {
+    "tag": "catalog-20260918-120435-04d9d86",
+    "url": "https://github.com/legumeinfo/LIS-autocontent/releases/tag/<tag>",
+    "asset": {
+      "name": "catalog.json",
+      "download_url": "https://github.com/legumeinfo/LIS-autocontent/releases/download/<tag>/catalog.json",
+      "latest_download_url": "https://github.com/legumeinfo/LIS-autocontent/releases/latest/download/catalog.json",
+      "size": 2411008,
+      "sha256": "<digest of the published file>"
+    }
   }
 }
 ```
 
-The receiver fetches `artifact.download_url` with its own GitHub token that can read this
-repository, since artifacts can't be downloaded anonymously. If the `WEBHOOK_SECRET`
-secret is set, the body is signed the way GitHub signs its webhooks:
-`X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, keyed by the secret>`. A
-failed build fails the run before anything is uploaded or sent, and so does a webhook the
-endpoint rejects; only timeouts, refused connections and 408/429/5xx responses are
-retried.
+The receiver fetches `release.asset.download_url` directly, with no token. If the
+`WEBHOOK_SECRET` secret is set, the body is signed the way GitHub signs its webhooks:
+`X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, keyed by the secret>`. A failed
+build fails the run before anything is published or sent. A webhook the endpoint rejects
+also fails the run, but the release is already published by then and stays published;
+only timeouts, refused connections and 408/429/5xx responses are retried.
 
 ## Building a Divbrowse compose file
 

@@ -1,8 +1,8 @@
 name: Populate catalog
 
 # Builds catalog.json for the whole datastore from the current datastore-metadata main,
-# stores it as a workflow artifact, then POSTs where to find it to the endpoint in the
-# WEBHOOK_URL repository variable.
+# publishes it as a GitHub release asset, then POSTs where to find it to the endpoint in
+# the WEBHOOK_URL repository variable.
 #
 # Trigger it from the Actions tab, or from another repository's workflow, e.g.
 #   gh workflow run populate-catalog.yml --repo legumeinfo/LIS-autocontent
@@ -13,8 +13,10 @@ name: Populate catalog
 on:
   workflow_dispatch:
 
+# contents: write is what lets the run create a release; reading the repository alone
+# is not enough.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: populate-catalog
@@ -53,26 +55,65 @@ jobs:
             --from_github datastore-metadata \
             --catalog_out catalog/catalog.json \
             --log_file populate-catalog.log
-          echo "datastore_commit=$(git -C datastore-metadata rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          {
+            echo "datastore_commit=$(git -C datastore-metadata rev-parse HEAD)"
+            echo "datastore_short=$(git -C datastore-metadata rev-parse --short HEAD)"
+            echo "sha256=$(sha256sum catalog/catalog.json | cut -d' ' -f1)"
+            echo "size=$(stat -c%s catalog/catalog.json)"
+          } >> "$GITHUB_OUTPUT"
 
-      # Unzipped, so the artifact is the JSON itself. Its name is the file's name.
-      - name: Upload catalog.json
-        id: upload
-        uses: actions/upload-artifact@v7
-        with:
-          path: catalog/catalog.json
-          archive: false
-          if-no-files-found: error
+      # One release per run, tagged with the build time and the datastore-metadata commit
+      # that determined the content, so any past catalog stays fetchable at its own tag.
+      # Seconds are in the tag because a re-run against the same commit must not collide:
+      # gh release create fails on an existing tag rather than overwriting one.
+      - name: Publish release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATASTORE_COMMIT: ${{ steps.build.outputs.datastore_commit }}
+          DATASTORE_SHORT: ${{ steps.build.outputs.datastore_short }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          SIZE: ${{ steps.build.outputs.size }}
+        run: |
+          tag="catalog-$(date -u +%Y%m%d-%H%M%S)-$DATASTORE_SHORT"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          cat > release-notes.md <<EOF
+          Catalog of the whole LIS datastore, built offline by \`populate-catalog\`.
 
-      # Artifacts can't be downloaded anonymously: the receiver needs a GitHub token with
-      # read access to this repository to fetch download_url.
+          | | |
+          | --- | --- |
+          | datastore-metadata | [\`$DATASTORE_SHORT\`](https://github.com/legumeinfo/datastore-metadata/commit/$DATASTORE_COMMIT) |
+          | lis-autocontent | [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) |
+          | built by | [run $GITHUB_RUN_ID]($run_url) |
+          | catalog.json | $SIZE bytes, sha256 \`$SHA256\` |
+
+          The newest catalog is always at
+          $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/catalog.json
+          EOF
+          # --latest keeps that stable URL pointing at this build.
+          gh release create "$tag" catalog/catalog.json \
+            --title "Catalog $(date -u +%Y-%m-%d) (datastore-metadata $DATASTORE_SHORT)" \
+            --notes-file release-notes.md \
+            --latest
+          {
+            echo "tag=$tag"
+            echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$tag"
+            echo "download_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/catalog.json"
+            echo "latest_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/catalog.json"
+          } >> "$GITHUB_OUTPUT"
+
+      # Unlike a workflow artifact, a release asset downloads without authentication, so
+      # download_url is usable by any receiver on a public repository.
       - name: Notify webhook
         env:
           WEBHOOK_URL: ${{ vars.WEBHOOK_URL || 'https://example.com' }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
-          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          DOWNLOAD_URL: ${{ steps.release.outputs.download_url }}
+          LATEST_URL: ${{ steps.release.outputs.latest_url }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          SIZE: ${{ steps.build.outputs.size }}
           DATASTORE_COMMIT: ${{ steps.build.outputs.datastore_commit }}
         run: |
           payload=$(jq -cn \
@@ -80,22 +121,28 @@ jobs:
             --arg commit "$GITHUB_SHA" \
             --arg datastore_commit "$DATASTORE_COMMIT" \
             --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --argjson artifact_id "$ARTIFACT_ID" \
-            --arg artifact_url "$ARTIFACT_URL" \
-            --arg download_url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
-            --arg sha256 "$ARTIFACT_DIGEST" \
+            --arg tag "$RELEASE_TAG" \
+            --arg release_url "$RELEASE_URL" \
+            --arg download_url "$DOWNLOAD_URL" \
+            --arg latest_url "$LATEST_URL" \
+            --arg sha256 "$SHA256" \
+            --argjson size "$SIZE" \
             '{
               event: "catalog-built",
               repository: $repository,
               commit: $commit,
               datastore_metadata_commit: $datastore_commit,
               run_url: $run_url,
-              artifact: {
-                id: $artifact_id,
-                name: "catalog.json",
-                url: $artifact_url,
-                download_url: $download_url,
-                sha256: $sha256
+              release: {
+                tag: $tag,
+                url: $release_url,
+                asset: {
+                  name: "catalog.json",
+                  download_url: $download_url,
+                  latest_download_url: $latest_url,
+                  size: $size,
+                  sha256: $sha256
+                }
               }
             }')
           headers=(
@@ -108,7 +155,8 @@ jobs:
             headers+=(-H "X-Hub-Signature-256: sha256=$signature")
           fi
           echo "$payload" | jq .
-          # Any non-2xx response fails the run, so a missed notification is visible.
+          # Any non-2xx response fails the run, so a missed notification is visible. The
+          # release is already published by this point and stays published either way.
           # Only transient failures (timeouts, refused connections, 408/429/5xx) are
           # retried; a rejection such as 405 won't change on a second attempt.
           curl --fail-with-body --silent --show-error --max-time 30 \
