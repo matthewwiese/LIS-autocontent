@@ -117,15 +117,27 @@ Two properties worth preserving if you change it:
 
 `.github/workflows/populate-catalog.yml` builds `catalog.json` for the whole store from
 the current `datastore-metadata` `main`, stores it as a workflow artifact, and then
-notifies an external endpoint. Trigger it with a `repository_dispatch` event of type
-`populate-catalog`, using a token allowed to create dispatch events on this repository
-(a classic token needs the `public_repo` scope):
+notifies an external endpoint. Trigger it from the repository's Actions tab, or on the
+command line:
 
 ```
-gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-catalog
+gh workflow run populate-catalog.yml --repo legumeinfo/LIS-autocontent
 ```
 
-GitHub only runs `repository_dispatch` workflows that exist on the default branch.
+To trigger it from another repository's workflow, dispatch it with a token that has
+`actions:write` on this repository (a fine-grained token needs the Actions permission, a
+classic one the `repo` scope). The calling repository's own `GITHUB_TOKEN` only grants
+access to the repository it runs in, so it cannot dispatch this workflow:
+
+```yaml
+- name: Rebuild the LIS catalog
+  env:
+    GH_TOKEN: ${{ secrets.AUTOCONTENT_DISPATCH_TOKEN }}
+  run: gh workflow run populate-catalog.yml --repo legumeinfo/LIS-autocontent
+```
+
+The workflow has to exist on the default branch to be dispatchable at all; it then runs
+against whichever ref the dispatch names (`--ref`, defaulting to the default branch).
 
 The workflow builds offline, without `--verify`, so the same `datastore-metadata` commit
 always gives the same catalog: a probe that fails for any reason reads as "file absent"
@@ -191,16 +203,15 @@ or a `chromosome_prefix` that isn't a single prefix.
 `.github/workflows/populate-divbrowse.yml` builds the compose file for the collections
 listed in [`.github/divbrowse-collections.txt`](.github/divbrowse-collections.txt) (one
 identifier per line, in service order) against the current `datastore-metadata` `main`,
-stores it as a workflow artifact, and then notifies an external endpoint. Trigger it with
-a `repository_dispatch` event of type `populate-divbrowse`, using a token allowed to
-create dispatch events on this repository (a classic token needs the `public_repo`
-scope):
+stores it as a workflow artifact, and then notifies an external endpoint. Trigger it from
+the repository's Actions tab, or on the command line:
 
 ```
-gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-divbrowse
+gh workflow run populate-divbrowse.yml --repo legumeinfo/LIS-autocontent
 ```
 
-GitHub only runs `repository_dispatch` workflows that exist on the default branch.
+Triggering it from another repository's workflow works the same way as for the catalog
+above, and needs the same `actions:write` token.
 
 Once the artifact is uploaded, the workflow POSTs JSON to the URL in the
 `WEBHOOK_URL` repository variable (default `https://example.com`, which rejects

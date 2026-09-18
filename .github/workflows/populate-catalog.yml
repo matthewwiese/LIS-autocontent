@@ -4,13 +4,14 @@ name: Populate catalog
 # stores it as a workflow artifact, then POSTs where to find it to the endpoint in the
 # WEBHOOK_URL repository variable.
 #
-# Trigger it with a repository_dispatch event of type populate-catalog, e.g.
-#   gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-catalog
-# GitHub only runs repository_dispatch workflows that exist on the default branch.
+# Trigger it from the Actions tab, or from another repository's workflow, e.g.
+#   gh workflow run populate-catalog.yml --repo legumeinfo/LIS-autocontent
+# Dispatching from another repository needs a token with actions:write here; that
+# repository's own GITHUB_TOKEN cannot reach this one. The workflow has to exist on the
+# default branch to be dispatchable, and runs against whichever ref the dispatch names.
 
 on:
-  repository_dispatch:
-    types: [populate-catalog]
+  workflow_dispatch:
 
 permissions:
   contents: read
