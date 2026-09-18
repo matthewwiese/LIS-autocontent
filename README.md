@@ -113,6 +113,53 @@ Two properties worth preserving if you change it:
   collections (nearly every `qtl` and `gwas` one) are `"unknown"`. Collapsing that
   into "no indexes" would report streamable data as unreadable.
 
+### Building it on GitHub Actions
+
+`.github/workflows/populate-catalog.yml` builds `catalog.json` for the whole store from
+the current `datastore-metadata` `main`, stores it as a workflow artifact, and then
+notifies an external endpoint. Trigger it with a `repository_dispatch` event of type
+`populate-catalog`, using a token allowed to create dispatch events on this repository
+(a classic token needs the `public_repo` scope):
+
+```
+gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-catalog
+```
+
+GitHub only runs `repository_dispatch` workflows that exist on the default branch.
+
+The workflow builds offline, without `--verify`, so the same `datastore-metadata` commit
+always gives the same catalog: a probe that fails for any reason reads as "file absent"
+and would drop that file from what gets published.
+
+Once the artifact is uploaded, the workflow POSTs JSON to the URL in the `WEBHOOK_URL`
+repository variable (default `https://example.com`, which rejects POSTs, so runs fail at
+that step until the variable is set):
+
+```json
+{
+  "event": "catalog-built",
+  "repository": "legumeinfo/LIS-autocontent",
+  "commit": "<LIS-autocontent commit>",
+  "datastore_metadata_commit": "<datastore-metadata commit>",
+  "run_url": "https://github.com/legumeinfo/LIS-autocontent/actions/runs/<run id>",
+  "artifact": {
+    "id": 1234,
+    "name": "catalog.json",
+    "url": "https://github.com/legumeinfo/LIS-autocontent/actions/runs/<run id>/artifacts/1234",
+    "download_url": "https://api.github.com/repos/legumeinfo/LIS-autocontent/actions/artifacts/1234/zip",
+    "sha256": "<digest of the uploaded file>"
+  }
+}
+```
+
+The receiver fetches `artifact.download_url` with its own GitHub token that can read this
+repository, since artifacts can't be downloaded anonymously. If the `WEBHOOK_SECRET`
+secret is set, the body is signed the way GitHub signs its webhooks:
+`X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, keyed by the secret>`. A
+failed build fails the run before anything is uploaded or sent, and so does a webhook the
+endpoint rejects; only timeouts, refused connections and 408/429/5xx responses are
+retried.
+
 ## Building a Divbrowse compose file
 
 `populate-divbrowse` writes a [Divbrowse](https://github.com/legumeinfo/divbrowse)
@@ -156,7 +203,7 @@ gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-divbro
 GitHub only runs `repository_dispatch` workflows that exist on the default branch.
 
 Once the artifact is uploaded, the workflow POSTs JSON to the URL in the
-`DIVBROWSE_WEBHOOK_URL` repository variable (default `https://example.com`, which rejects
+`WEBHOOK_URL` repository variable (default `https://example.com`, which rejects
 POSTs, so runs fail at that step until the variable is set):
 
 ```json
@@ -180,7 +227,7 @@ POSTs, so runs fail at that step until the variable is set):
 GitHub artifacts can't be downloaded anonymously, so the receiver fetches
 `artifact.download_url` with its own GitHub token that can read this repository;
 `artifact.url` is the same artifact for a signed-in browser. If the
-`DIVBROWSE_WEBHOOK_SECRET` secret is set, the body is signed the way GitHub signs its
+`WEBHOOK_SECRET` secret is set, the body is signed the way GitHub signs its
 webhooks: `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, keyed by the secret>`.
 
 A collection that can't be built fails the run before anything is uploaded or sent. A

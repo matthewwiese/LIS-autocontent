@@ -1,29 +1,29 @@
-name: Populate Divbrowse
+name: Populate catalog
 
-# Builds the Divbrowse docker-compose.yml for the collections listed in
-# .github/divbrowse-collections.txt, stores it as a workflow artifact, then POSTs where to
-# find it to the endpoint in the WEBHOOK_URL repository variable.
+# Builds catalog.json for the whole datastore from the current datastore-metadata main,
+# stores it as a workflow artifact, then POSTs where to find it to the endpoint in the
+# WEBHOOK_URL repository variable.
 #
-# Trigger it with a repository_dispatch event of type populate-divbrowse, e.g.
-#   gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-divbrowse
+# Trigger it with a repository_dispatch event of type populate-catalog, e.g.
+#   gh api repos/legumeinfo/LIS-autocontent/dispatches -f event_type=populate-catalog
 # GitHub only runs repository_dispatch workflows that exist on the default branch.
 
 on:
   repository_dispatch:
-    types: [populate-divbrowse]
+    types: [populate-catalog]
 
 permissions:
   contents: read
 
 concurrency:
-  group: populate-divbrowse
+  group: populate-catalog
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  divbrowse:
+  catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -42,36 +42,24 @@ jobs:
       - name: Install lis-autocontent
         run: pip install .
 
-      # A collection the Divbrowse format can't express makes populate-divbrowse exit
-      # non-zero with the reason, which fails the run before anything is uploaded or sent.
-      - name: Build docker-compose.yml
+      # Offline, so the same datastore-metadata commit always gives the same catalog.
+      # --verify would HEAD-check the files predicted for collections without a CHECKSUM,
+      # but a probe that fails for any reason reads as "file absent" and drops the file.
+      - name: Build catalog.json
         id: build
         run: |
-          mapfile -t collections < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' .github/divbrowse-collections.txt | grep -v '^$' || true)
-          if [ "${#collections[@]}" -eq 0 ]; then
-            echo "::error file=.github/divbrowse-collections.txt::no collections are listed"
-            exit 1
-          fi
-          args=()
-          for identifier in "${collections[@]}"; do
-            args+=(--collection "$identifier")
-          done
-          lis-autocontent populate-divbrowse \
+          lis-autocontent populate-catalog \
             --from_github datastore-metadata \
-            --compose_out divbrowse/docker-compose.yml \
-            --log_file populate-divbrowse.log \
-            "${args[@]}"
-          {
-            echo "datastore_commit=$(git -C datastore-metadata rev-parse HEAD)"
-            echo "collections=$(printf '%s\n' "${collections[@]}" | jq -R . | jq -cs .)"
-          } >> "$GITHUB_OUTPUT"
+            --catalog_out catalog/catalog.json \
+            --log_file populate-catalog.log
+          echo "datastore_commit=$(git -C datastore-metadata rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Unzipped, so the artifact is the YAML itself. Its name is the file's name.
-      - name: Upload docker-compose.yml
+      # Unzipped, so the artifact is the JSON itself. Its name is the file's name.
+      - name: Upload catalog.json
         id: upload
         uses: actions/upload-artifact@v7
         with:
-          path: divbrowse/docker-compose.yml
+          path: catalog/catalog.json
           archive: false
           if-no-files-found: error
 
@@ -85,28 +73,25 @@ jobs:
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
           ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           DATASTORE_COMMIT: ${{ steps.build.outputs.datastore_commit }}
-          COLLECTIONS: ${{ steps.build.outputs.collections }}
         run: |
           payload=$(jq -cn \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg commit "$GITHUB_SHA" \
             --arg datastore_commit "$DATASTORE_COMMIT" \
             --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --argjson collections "$COLLECTIONS" \
             --argjson artifact_id "$ARTIFACT_ID" \
             --arg artifact_url "$ARTIFACT_URL" \
             --arg download_url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
             --arg sha256 "$ARTIFACT_DIGEST" \
             '{
-              event: "divbrowse-compose-built",
+              event: "catalog-built",
               repository: $repository,
               commit: $commit,
               datastore_metadata_commit: $datastore_commit,
               run_url: $run_url,
-              collections: $collections,
               artifact: {
                 id: $artifact_id,
-                name: "docker-compose.yml",
+                name: "catalog.json",
                 url: $artifact_url,
                 download_url: $download_url,
                 sha256: $sha256
@@ -114,7 +99,7 @@ jobs:
             }')
           headers=(
             -H "Content-Type: application/json"
-            -H "User-Agent: lis-autocontent-populate-divbrowse"
+            -H "User-Agent: lis-autocontent-populate-catalog"
           )
           if [ -n "$WEBHOOK_SECRET" ]; then
             # Signed like GitHub's own webhooks: HMAC-SHA256 of the exact body sent.
