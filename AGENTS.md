@@ -1,108 +1,213 @@
 # Working on lis-autocontent
 
-Scrapes the LIS Data Store's metadata and writes the configs and databases that
-downstream services deploy from: a Jekyll site, JBrowse2, BLAST, DSCensor, a whole-store
+Reads a checkout of `legumeinfo/datastore-metadata` and writes what downstream LIS services
+deploy from: Jekyll YAML, JBrowse2 and BLAST commands, DSCensor nodes, a whole-store
 catalog, and a Divbrowse compose file.
 
-## The one rule that matters
+## Artifacts are contracts
 
-**Every subcommand is a pure transform of datastore metadata, and its output is consumed
-by something you cannot see.** Treat each artifact as a published contract. A refactor
-that "cleans up" the shape of `dscensor_nodes/*.json`, the Jekyll YAML, or the BLAST
-command list breaks a consumer, silently, at deploy time.
+Each subcommand is a pure transform of metadata, consumed by a service you can't see. An
+unintended change to an artifact's content or shape is a bug, even when tests pass.
 
-So: before committing a change to any code that feeds an artifact, prove the artifact
-didn't move. Build it before and after against the same `datastore-metadata` checkout and
-diff the trees:
+Before committing a change to code that feeds an artifact, build it before and after
+against one checkout and diff:
 
 ```
-git clone https://github.com/legumeinfo/datastore-metadata.git   # the input, ~1 min
+git clone https://github.com/legumeinfo/datastore-metadata.git
 lis-autocontent populate-dscensor --from_github ./datastore-metadata --nodes_out ./before
-git stash && pip install -e . && lis-autocontent populate-dscensor \
-    --from_github ./datastore-metadata --nodes_out ./after
-diff -r ./before ./after      # must be empty, or every difference must be one you intended
+# apply the change, reinstall, then:
+lis-autocontent populate-dscensor --from_github ./datastore-metadata --nodes_out ./after
+diff -r ./before ./after
 ```
 
-An intended difference is fine — an unexplained one is a bug. Say plainly in the commit
-message which artifacts changed and why. "No artifact changed" is itself worth stating.
+Every difference must be intended and named in the commit message.
 
-## Layout
+## Architecture
 
-| File | Role |
+### Input
+
+datastore-metadata mirrors the Data Store's tree, holding only metadata:
+
+```
+<Genus>/<species>/<collection_type>/<collection>/
+    README.<collection>.yml       descriptive metadata (a few ship a bare README)
+    CHECKSUM.<collection>.md5     every file in the collection, with md5
+    MANIFEST.<collection>.yml     per-file descriptions and applications
+    BUSCO/*.short_summary.json    completeness and assembly metrics
+<Genus>/{GENUS,<species>}/about_this_collection/description_*.yml   taxon metadata
+<Genus>/<species>/gene_functions/<abbrev>.traits.yml                curated gene symbols
+```
+
+### Two pipelines
+
+| | `DatastoreIndex` (`datastore_files.py`) | `ProcessCollections` (`process_collections.py`) |
+| --- | --- | --- |
+| Serves | `populate-catalog`, `populate-divbrowse` | `populate-jekyll`, `-jbrowse2`, `-blast`, `-dscensor` |
+| Reads | the checkout only; offline | the checkout plus HEAD probes of the live store; the store alone without a checkout |
+| Model | typed dataclasses | nested dicts keyed by collection type |
+| Role | the base for new work | legacy; outputs already deployed, change conservatively |
+
+They share one constant: `NODE_README_FIELDS` (DSCensor's README fields) must stay a subset
+of `README_FIELDS` (the catalog's). A test enforces it.
+
+### `DatastoreIndex.build()`
+
+1. **Discover.** `find_collections` walks the checkout. A directory exactly four levels deep
+   (`Genus/species/type/collection`) is a collection if it holds a README, CHECKSUM or
+   MANIFEST.
+2. **Read the README.** Unreadable yields `{}` and a warning, never a crash. Non-empty
+   `README_FIELDS` go to `collection.metadata`.
+3. **Resolve files**, most authoritative first:
+   - `checksum_files`: every `CHECKSUM.*.md5` in the directory. `src=checksum`,
+     `index_status=known`, md5 carried.
+   - else `predicted_records`: names built from `filetypes.yml` conventions.
+     `src=predicted`, `index_status=inferred`; with `--verify`, HEAD-confirmed as
+     `verified`. A type with no convention stays `unknown`, with no files.
+4. **Annotate files.** `indexes` from sibling suffixes present in the list
+   (`INDEX_SUFFIXES`); `description`/`applications` from MANIFEST; `busco`/`counts` from the
+   BUSCO JSON.
+5. **Link lineage.** `link_lineage` derives `derived_from` from identifiers
+   (`Wm82.gnm4.ann1.T8TQ` -> `Wm82.gnm4`) and copies `INHERITED_FIELDS` such as
+   `chromosome_prefix` down from the parent genome.
+6. **Store-wide passes.** `pairwise_relationships` (genome pairs parsed from filenames by
+   `PAIRWISE_PATTERN`), `descriptions` (taxa), `curated_symbols`, then `count` for stats.
+
+Query the built index with `select`, `sibling`, `companion` and `orphan_collections`.
+
+### Provenance
+
+Nothing is presented as more certain than it is:
+
+| Field | Values |
 | --- | --- |
-| `datastore_files.py` | `DatastoreIndex`: the whole-store model. Reads every collection in a checkout — README metadata, CHECKSUM/MANIFEST file lists, BUSCO, lineage, pairwise relationships — with no network access. **This is the base abstraction; extend it rather than re-reading the store elsewhere.** |
-| `catalog.py` | A thin serializer over `DatastoreIndex`, nothing more. Its JSON shape is a contract: change it only together with `SCHEMA_VERSION`. |
-| `process_collections.py` | The older scraper path behind `populate-jekyll`, `populate-jbrowse2`, `populate-blast` and `populate-dscensor`. Derived from the original SammyJava scripts; its quirks are load-bearing because its outputs are already deployed. |
-| `divbrowse.py` | Builds the Divbrowse compose file. Refuses, with reasons, any collection the format can't express rather than emitting something half-valid. |
-| `lis_cli.py` | Click options and wiring only; no logic. |
-| `filetypes.yml` | The filetype vocabulary, shipped as package data (see `[tool.setuptools.package-data]`). Not importable Python — it must stay listed there or installs break. |
+| `DatastoreFiles.src` | `checksum` · `verified` · `predicted` |
+| `DatastoreCollection.index_status` | `known` · `verified` · `inferred` · `unknown` |
+| `DatastoreFiles.index_unknown` | true when a predicted file's index siblings were never probed |
 
-`CHECKSUM.<key>.md5` is the authoritative file list for a collection, not the naming
-conventions and not the store's HTML index: it is the only enumeration that includes the
-`.fai`/`.tbi` index siblings, so random-access flags can come from nowhere else.
+`unknown` is not "none": collapsing it reports streamable data as unreadable. Likewise
+`checksum_files` returns `None` for "could not look" and `[]` for "looked, empty", and
+callers depend on the difference.
+
+### Consumers of the index
+
+- `catalog.py` serializes the index to one JSON document and holds no logic of its own.
+  Its shape is versioned: change it only with `SCHEMA_VERSION`.
+- `divbrowse.py` builds one compose service per diversity collection and refuses any
+  collection the format can't express.
+
+New metadata belongs on `DatastoreIndex` (a field or a pass) and reaches consumers through
+the catalog. Don't re-walk the checkout elsewhere. Change `ProcessCollections` only to keep
+its existing outputs correct.
+
+## Code style
+
+black (88 cols), pylint (`max-line-length` 110, `fail-under` 8) and pre-commit enforce the
+basics. Beyond those:
+
+- **Records are `@dataclass`es.** Derived values are `@property`; pure helpers are
+  `@staticmethod`s or module functions.
+- **Vocabularies are module constants** (`SRC_*`, `STATUS_*`, `README_FIELDS`), never
+  repeated string literals. Regexes are compiled module constants; name the groups
+  you capture.
+- **Offline and deterministic.** Sort collections and files. No timestamps, set iteration
+  order or network access in an artifact path, except behind an explicit flag (`--verify`).
+- **Degrade loudly.** Missing or unreadable input yields an empty value and a
+  `logger.warning`: never a crash, never a silent default.
+- **Validate completely.** Collect every problem, then fail once listing them all
+  (`DivbrowseError`). Validators return `(value, problems)`.
+- **Lazy logging:** `logger.info("wrote %s", path)`, not f-strings.
+- **Narrow pylint disables,** inline on the line that needs one, never file-wide.
+- **`lis_cli.py` is wiring:** click options and calls, no logic.
+- **Tests:** declare fixtures as `@pytest.fixture(name="x")` over `def fixture_x()`. Name
+  tests as sentences stating the behavior
+  (`test_orphan_collections_are_those_without_a_checksum`). Build fixture trees with
+  conftest's `write`.
+
+`process_collections.py` predates these rules. Conform the lines you touch; leave the rest.
+
+## Comments
+
+- **Terse.** One line, two at most. A docstring is a one-line summary, plus a short
+  paragraph only for a contract a caller must know.
+- **Why, not what.** Don't restate the code.
+- **The code as it is, in the present tense.** No history: not "fixed", "used to",
+  "previously", "now", nor what a bug did or how it was found. That goes in the commit
+  message.
+
+Bad:
+
+```python
+def head_remote(self, url):
+    """Returns True if it exists, otherwise False.
+
+    A HEAD response has no body, so returning response.text here gave "" for every
+    file that exists, and callers treated each one as missing.
+    """
+```
+
+Good:
+
+```python
+def head_remote(self, url):
+    """True if the URL answers 200. HEAD has no body, so decide on status alone."""
+```
+
+Bad:
+
+```python
+# Types documented as never carrying index siblings need no probing to know
+# none of these files is randomly accessible. For the types that CAN carry
+# them, an unprobed file's index status is genuinely unknown -- reporting it
+# as "not indexed" would mark streamable data unreadable, which is the same
+# mistake `index_status` exists to prevent.
+```
+
+Good:
+
+```python
+# Unprobed siblings are unknown, not absent.
+```
+
+## Tests
+
+- **Unit tests** run over fixture trees from `tests/conftest.py`, each pinning one
+  metadata edge case. Fixing an edge case means adding the fixture that reproduces it.
+- **Golden tests** compare artifacts with reviewed copies in `tests/data/`.
+
+A failing golden test is the point. Read its diff and decide whether the change is
+intended; only then run `LIS_UPDATE_EXPECTED=1 pytest` and commit the reviewed
+`tests/data/` diff. Never regenerate to turn a test green. Don't write tests for coverage.
 
 ## Setup and commands
 
 ```
 pip install -e '.[dev]'     # Python >=3.10,<4
-pre-commit install          # end-of-file-fixer, trailing-whitespace, black
+pre-commit install
 pytest                      # 79 tests, ~1s, no network
-black src tests             # 88 cols, non-negotiable (pre-commit enforces it)
-pylint src/lis_autocontent  # max-line-length 110, fail-under 8.0
+black src tests
+pylint src/lis_autocontent
 ```
 
-CI runs pylint and pytest on 3.10 and 3.13. There is no local `actionlint`; lint workflow
-files with `docker run --rm -v "$(pwd)":/repo -w /repo rhysd/actionlint:latest -no-color`.
+CI runs pylint and pytest on Python 3.10 and 3.13. `populate-jbrowse2` and
+`populate-blast` execute `jbrowse`/`makeblastdb` unless given `--cmds_only`.
 
-## Tests
+## Invariants
 
-Two kinds, and the distinction matters:
-
-- **Unit tests** over fixture trees built by `tests/conftest.py`. Each one pins a specific
-  edge case in real datastore metadata — a collection with no CHECKSUM, an unreadable
-  README, a pairwise name carrying a program suffix. When you fix a metadata edge case,
-  add the fixture that reproduces it.
-- **Expected-output ("golden") tests** comparing generated artifacts against reviewed
-  copies in `tests/data/`. These are the regression net for the rule above.
-
-When a golden test fails, the failure is the point. Read the diff first and decide whether
-the change was intended. Only then:
-
-```
-LIS_UPDATE_EXPECTED=1 pytest    # regenerates tests/data/, then review that diff and commit it
-```
-
-Never regenerate to make a red test green. A reviewed `tests/data/` diff in the commit is
-the evidence that an artifact change was deliberate.
-
-Avoid tests written for coverage's own sake. A test earns its place by pinning a metadata
-edge case or an artifact's shape.
-
-## Gotchas found the hard way
-
-- **HEAD requests have no body.** `head_remote` must return a boolean from the status code;
-  returning `response.text` makes every probe falsy, which once silently dropped 263
-  protein collections from DSCensor and BLAST for two years. Any "file absent" path
-  deserves this suspicion.
-- **`--verify` is off by default and should stay off in automation.** It costs ~1,650 HEAD
-  requests, and a probe that fails for *any* reason (a blip, a rate limit) reads as "file
-  absent" and drops the file — so a verified build is less reproducible than an offline one.
-- **`index_status` is four-state** (known/verified/inferred/unknown). ~45% of collections
-  are `unknown`; collapsing that to "no indexes" reports streamable data as unreadable.
-- Docker Compose service names must be lowercase, or the image tag is rejected.
+- Existence checks decide on status code; a HEAD response has no body.
+- `--verify` stays off in automation: a probe failing for any reason reads as "absent" and
+  drops the file.
+- `CHECKSUM` is the only enumeration listing `.fai`/`.tbi` siblings, so random-access flags
+  come from nowhere else.
+- Compose service names are lowercase, or Docker rejects the image tag.
 
 ## Related repositories
 
-- **`legumeinfo/datastore-metadata`** — the input. Every subcommand reads a checkout of it
-  via `--from_github` (default `./datastore-metadata`).
-- The **catalog release workflow lives in datastore-metadata**, not here: it checks this
-  repo out, runs `populate-catalog`, and publishes `catalog.json` as a release asset there.
-  The catalog is built *from* that repo's contents, so building it there avoids a
-  cross-repository token and a second run to chase.
+- `legumeinfo/datastore-metadata` is the input (`--from_github`, default
+  `./datastore-metadata`).
+- The catalog release workflow lives in datastore-metadata: it checks this repo out, runs
+  `populate-catalog`, and publishes `catalog.json` as a release asset there.
 
-## Conventions
+## Commits
 
-Commit subjects are imperative and lowercase-ish after the first word ("Add populate-catalog
-action", "Publish the catalog as a release instead of a workflow artifact"). Explain *why*
-in the body, and name any artifact that changed. Comments in this codebase explain
-reasoning, not mechanics — match that; don't narrate what the next line plainly does.
+Imperative subject. The body says why, and names every artifact that changed, or states
+that none did. History belongs here, not in comments.
