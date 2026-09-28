@@ -1,9 +1,4 @@
-"""Shared fixtures: a miniature datastore-metadata checkout.
-
-The tree exercises the four metadata layers, the index-status states, lineage linking
-and field inheritance. No network is touched, which is the property an offline build is
-supposed to guarantee.
-"""
+"""Shared fixtures: an offline miniature datastore-metadata checkout."""
 
 import json
 import os

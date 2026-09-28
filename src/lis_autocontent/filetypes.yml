@@ -1,32 +1,14 @@
-# Expected file contents per collection type, for resolving the file list of a
-# collection that publishes no CHECKSUM.
+# Expected files per collection type, for collections that publish no CHECKSUM.
+# Vendored from datastore-specifications (Genus/species/<type>/<content>.md);
+# tests/test_filetypes.py guards it against drift. Predictions are labelled `src`,
+# never authoritative.
 #
-# SOURCE OF TRUTH: github.com/legumeinfo/datastore-specifications, whose template tree
-# documents one Markdown file per content type at Genus/species/<type>/<content>.md.
-# This file is a vendored copy so a catalog build needs no network to know the
-# vocabulary; `tests/test_filetypes.py` guards it against drift.
-#
-# Why this exists: roughly 45% of collections publish no CHECKSUM (nearly every qtl,
-# gwas and maps one), and CHECKSUM is the only enumeration that lists a collection's
-# files. Without this, those collections are catalogued with an empty file list and are
-# effectively unreachable. With it, filenames are constructed from the documented
-# convention and (with --verify) confirmed against the store.
-#
-# Measured against 23 live collections: 57 files correctly predicted, 12 predicted but
-# absent, 2 that existed and were not predicted (one .webp figure, one collection whose
-# filename id disagrees with its directory name). Prediction is therefore a good default
-# and a poor guarantee -- which is why every predicted file is labelled `src` in the
-# catalog and never presented as authoritative.
-#
-# Shape of each entry:
-#   prefix    abbrev = "<scientific_name_abbrev>.<identifier>."  (the common case)
-#             none   = "<identifier>."                           (genus/family-scoped sets)
-#   contents  the documented content types
-#   extension appended to "<prefix><content>"
-#   indexed   false = this type never publishes .fai/.tbi siblings, so index status can
-#             be resolved without probing for them (verified: 72 probes, 0 hits across
-#             qtl/gwas/maps). Omit when indexes are possible.
-#   predictable: false = filenames are arbitrary; never guess.
+#   prefix       abbrev = "<scientific_name_abbrev>.<identifier>."
+#                none   = "<identifier>."
+#   contents     the documented content types
+#   extension    appended to "<prefix><content>"
+#   indexed      false = never publishes .fai/.tbi siblings, so none are probed
+#   predictable  false = filenames are arbitrary; never guess
 
 qtl:
   prefix: abbrev

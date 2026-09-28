@@ -1,10 +1,4 @@
-"""Tests for the whole-store datastore index.
-
-The index is the model every output is built from. These cover what the catalog
-document cannot show -- CHECKSUM parsing details, file-name parsing, prediction,
-probing and the query API -- and are exercised against the index directly. What the
-catalog document makes of it is covered in test_catalog.py.
-"""
+"""The index itself: CHECKSUM and name parsing, prediction, probing and queries."""
 
 import os
 
@@ -36,9 +30,7 @@ def test_orphan_collections_are_those_without_a_checksum(metadata_dir):
 
 
 def test_node_fields_are_a_subset_of_catalog_fields():
-    """DSCensor nodes carry NODE_README_FIELDS and the catalog carries README_FIELDS.
-    The node list is deliberately narrower, but must never drift outside it, or the
-    two artifacts would disagree about what a collection's README says."""
+    """NODE_README_FIELDS stays within README_FIELDS, so nodes and catalog agree."""
     assert set(NODE_README_FIELDS) <= set(README_FIELDS)
 
 
@@ -65,9 +57,7 @@ def test_file_names_are_parsed_into_canonical_type_and_extensions(metadata_dir):
 
 
 def test_a_checksum_not_named_for_its_directory_is_still_read(metadata_dir, write):
-    """legume.fam1.M65K publishes CHECKSUM.mixed.fam1.M65K.md5 and nothing else.
-    Looking only for CHECKSUM.<directory>.md5 missed it and demoted an authoritative
-    list to a guess."""
+    """legume.fam1.M65K's only CHECKSUM, CHECKSUM.mixed.fam1.M65K.md5, is read."""
     path = "LEGUMES/Fabaceae/genefamilies/legume.fam1.M65K"
     coll = os.path.join(metadata_dir, path)
     write(os.path.join(coll, "README.legume.fam1.M65K.yml"), "identifier: x\n")
@@ -142,9 +132,7 @@ def test_pairwise_parents_are_parsed_from_the_file_name():
 
 # --- BUSCO and counts, offline -----------------------------------------------------
 def test_metrics_are_parsed_from_the_committed_summary(metadata_dir):
-    """The short_summary JSON carries assembly metrics as well as completeness, so
-    no .fai fetch is needed and the build stays offline. Every field is pinned: a
-    metric read from the wrong key is a scientific error, not a cosmetic one."""
+    """Every metric is pinned: one read from the wrong key is a scientific error."""
     index = DatastoreIndex(metadata_dir)
     busco, counts = index.busco_summary(os.path.join(metadata_dir, GENOME))
     assert busco == {
@@ -194,9 +182,7 @@ def test_prefixless_types_omit_the_abbrev(metadata_dir):
 
 # --- probing ---------------------------------------------------------------------------
 def test_verify_probes_percent_encode_non_ascii_paths(metadata_dir, monkeypatch):
-    """21 collections carry non-ASCII names. Unencoded, urllib raises rather than
-    returning a status — which, swallowed, reports every one of their files as absent.
-    This regressed once and cost 17 collections their entire file list."""
+    """Non-ASCII paths are percent-encoded, else urllib raises and files read absent."""
     asked = []
 
     def fake_urlopen(request, timeout=None):  # pylint: disable=unused-argument

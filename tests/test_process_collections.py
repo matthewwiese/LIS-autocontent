@@ -1,9 +1,4 @@
-"""Tests for the offline parts of ProcessCollections.
-
-Taxon selection needs no network. Remote existence checks are tested with requests
-stubbed out. The artifacts each subcommand produces are covered end to end in
-test_cli.py.
-"""
+"""The offline parts of ProcessCollections; artifacts are covered in test_cli.py."""
 
 import logging
 import os
@@ -86,9 +81,7 @@ def _stub_head(status, asked):
 def test_annotations_yield_the_protein_files_that_exist(
     parser, clone, write, monkeypatch, status, proteins
 ):
-    """The regression: a HEAD response has no body, so returning its text made every
-    existence check fail, and no protein or protein_primary file ever became a
-    DSCensor node or a BLAST database. A file that is absent must still be skipped."""
+    """Protein files that exist become entries; absent ones are skipped."""
     key = "CDCFrontier.gnm3.ann1.NPD7"
     write(
         os.path.join(

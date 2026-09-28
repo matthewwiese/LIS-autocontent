@@ -1,10 +1,7 @@
-"""Tests for populate-divbrowse: a Divbrowse docker-compose.yml built from metadata.
+"""populate-divbrowse against legumeinfo/divbrowse's own docker-compose.yml.
 
-The reference is legumeinfo/divbrowse's own docker-compose.yml, vendored byte for byte
-in tests/data/divbrowse/ (last changed upstream in eaf28a6). For the three collections
-it serves, the generated file must be that file with only the service names and data
-directories changed to the collection identifiers. A collection the format can't express
-must stop the command with its reason and write nothing.
+The upstream file is vendored in tests/data/divbrowse/, as of upstream eaf28a6. The
+output must equal it except for service names and data directories.
 """
 
 import os

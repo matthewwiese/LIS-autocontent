@@ -1,34 +1,8 @@
 """Index every collection and file in the datastore from a datastore-metadata checkout.
 
-Each collection directory carries a CHECKSUM.<key>.md5 listing every file it
-contains, including files in subdirectories such as BUSCO/. Treating that
-manifest as the authoritative file list removes the need to construct URLs from
-hardcoded naming conventions, and surfaces files the conventions never covered.
-It is also the *only* enumeration that lists the ``.fai``/``.tbi`` index siblings --
-the store's HTML index and its JSON API both filter those out -- so file-level
-random-access flags can come from nowhere else.
-
-The index covers the whole store, with no network access. It reads the four
-metadata layers the datastore specification guarantees --
-
-    README.<key>.yml            provenance, DOI, taxonomy, assembly conventions
-    CHECKSUM.<key>.md5          the authoritative file list
-    MANIFEST.<key>.yml          a description (and application tags) per file
-    BUSCO/*.short_summary.json  completeness scores and assembly counts
-
--- plus the genus/species descriptions and the curated gene symbols.
-
-Roughly 45% of collections (nearly every qtl, gwas and maps one) publish no
-CHECKSUM. Their file lists are predicted from the documented naming convention in
-filetypes.yml, optionally HEAD-confirmed with ``verify=True``, and every file says
-how it came to be known (SRC_*). Every collection likewise records how its file
-list was obtained in ``index_status``: collapsing "we could not look" into "we
-looked and there is nothing" would report streamable data as unreadable.
-
-Datastore file names follow gensp.<collection_key>.<canonical_type>.<extensions>,
-where collection_key is the collection directory name. Pairwise collections
-(synteny, genome_alignments) instead use
-gensp1.strain1.gnm.x.gensp2.strain2.gnm.<key>.<extensions>.
+Offline. CHECKSUM.<key>.md5 is the authoritative file list and the only listing of
+.fai/.tbi siblings. Collections without one get files predicted from filetypes.yml,
+labelled by ``src`` and ``index_status``.
 """
 
 import json
@@ -51,9 +25,7 @@ FILETYPES_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "filetypes.yml"
 )
 
-# How a file came to be known. Recorded per file so consumers (DSCensor, the
-# legumista MCP server, JBrowse/BLAST config) can report provenance without
-# re-deriving it -- they stay dumb readers of what this build decided.
+# How a file came to be known, recorded so consumers needn't re-derive it.
 SRC_CHECKSUM = "checksum"  # listed in CHECKSUM.md5; authoritative
 SRC_VERIFIED = "verified"  # constructed by convention, HEAD-confirmed to exist
 SRC_PREDICTED = "predicted"  # constructed by convention, not checked
@@ -67,16 +39,14 @@ STATUS_UNKNOWN = "unknown"  # no CHECKSUM and no documented convention
 PROBE_TIMEOUT = int(os.environ.get("LIS_CATALOG_PROBE_TIMEOUT", "20"))
 PROBE_WORKERS = int(os.environ.get("LIS_CATALOG_PROBE_WORKERS", "8"))
 
-# Index siblings, mapped to the reader that consumes the file they belong to.
+# Siblings that make a data file randomly accessible.
 INDEX_SUFFIXES = (".fai", ".tbi", ".csi", ".bai", ".crai")
 # Companions that are not themselves data and never determine access on their own.
 COMPANION_SUFFIXES = (".gzi", ".md5")
 # Matched with the dot: real data files are named e.g. "MANIFEST-000002".
 METADATA_PREFIXES = ("README.", "MANIFEST.", "CHANGES.", "CHECKSUM.", "LINKOUTS.")
 
-# README fields copied verbatim onto a collection. Everything here is published
-# by the datastore spec; the point of the list is that nothing gets silently
-# dropped the way `taxid` was before.
+# README fields copied verbatim onto a collection.
 README_FIELDS = (
     "synopsis",
     "description",
@@ -103,10 +73,8 @@ README_FIELDS = (
     "dataset_release_date",
 )
 
-# The subset of README_FIELDS worth carrying on a per-file DSCensor node. Nodes are
-# per-file and numerous, so the long prose (description, citation, provenance) stays in
-# the catalog and out of the nodes. Shared with process_collections so the two paths
-# cannot drift apart.
+# README_FIELDS carried on each DSCensor node; long prose stays in the catalog.
+# Shared with process_collections so the two paths can't drift.
 NODE_README_FIELDS = (
     "taxid",
     "scientific_name_abbrev",
@@ -121,9 +89,7 @@ NODE_README_FIELDS = (
     "genotype",
 )
 
-# Fields an annotation may inherit from the genome it derives from. These live on
-# the genome README only, so a flat node list cannot express them -- following the
-# derived_from edge is the whole reason the index is a graph and not a table.
+# Genome README fields an annotation inherits along derived_from.
 INHERITED_FIELDS = ("chromosome_prefix", "supercontig_prefix", "bioproject")
 
 # <A>.x.<B>[.<epoch>].<KEY>[.<program>].<ext>; see DatastoreIndex.pairwise_relationships.
@@ -142,12 +108,10 @@ EMPTY_VALUES = (None, "", [], {})
 
 @dataclass
 class DatastoreFiles:  # pylint: disable=too-many-instance-attributes
-    """One file in a collection, with its position in the datastore.
+    """One file in a collection.
 
-    ``src`` says how the file came to be known; only files listed in a CHECKSUM
-    carry an md5. ``indexes`` holds the index suffixes present alongside a data
-    file, and ``index_unknown`` marks a predicted file whose siblings were never
-    probed.
+    ``src`` says how it came to be known; only CHECKSUM files carry an md5.
+    ``index_unknown`` marks a predicted file whose siblings were never probed.
     """
 
     genus: str
@@ -205,11 +169,10 @@ class DatastoreFiles:  # pylint: disable=too-many-instance-attributes
 
 @dataclass
 class DatastoreCollection:  # pylint: disable=too-many-instance-attributes
-    """One collection directory: its README metadata, its files and their provenance.
+    """One collection directory: its README metadata, files and provenance.
 
-    ``metadata`` holds the non-empty README_FIELDS, plus any INHERITED_FIELDS taken
-    from the genome it derives from (named in ``inherited``). ``files`` is every
-    file, metadata and index siblings included, sorted by path.
+    ``files`` includes metadata and index siblings, sorted by path. ``metadata``
+    includes INHERITED_FIELDS from its genome, named in ``inherited``.
     """
 
     genus: str
@@ -242,11 +205,9 @@ class DatastoreCollection:  # pylint: disable=too-many-instance-attributes
 
 
 def split_on_key(basename, collection_key):
-    """Split a file name into canonical type and extensions.
+    """(canonical_type, extensions) around the collection key, or (None, "") if absent.
 
-    Tries the full collection key first, then just its trailing token, which is
-    how pairwise alignment files embed the key. Returns (None, "") when neither
-    appears, which marks an ancillary file such as a log or usage policy.
+    Also matches the key's last token, which is how pairwise files embed it.
     """
     for marker in (collection_key, collection_key.split(".")[-1]):
         token = f".{marker}."
@@ -257,11 +218,7 @@ def split_on_key(basename, collection_key):
 
 
 def split_pairwise_parents(basename):
-    """Return the two assembly prefixes of a pairwise file, or an empty list.
-
-    Names of the form gensp1.strain1.gnmN.x.gensp2.strain2.gnmM.key.ext encode
-    both sides of an alignment around a literal '.x.' separator.
-    """
+    """The two assembly prefixes of a pairwise ``A.x.B`` file name, or []."""
     parts = basename.split(".")
     if "x" not in parts:
         return []
@@ -296,9 +253,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         self.root = pathlib.Path(os.path.abspath(root))
         self.logger = logger or logging.getLogger(__name__)
         self.datastore_url = (datastore_url or DEFAULT_DATASTORE_URL).rstrip("/")
-        # When True, every predicted filename is confirmed with a HEAD request before
-        # it enters the index. Off by default so a build stays offline and fast. The
-        # difference is visible in each file's `src`, never silent.
+        # HEAD-confirm predicted files; off by default so a build stays offline.
         self.verify = verify
         self.filetypes = self._load_filetypes()
         self.files = []  # every file record, across all collections
@@ -310,11 +265,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     # ------------------------------------------------------------------ helpers
     def _read_text(self, path):
-        """Read a metadata file, or return "" when it is absent or unreadable.
-
-        Metadata files are individually optional in practice, so a miss must
-        degrade the record rather than abort the build.
-        """
+        """A metadata file's text, or "" when it is absent or unreadable."""
         try:
             with open(path, encoding="utf-8", errors="replace") as handle:
                 return handle.read()
@@ -338,12 +289,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return docs[0] if docs else {}
 
     def source_commit(self):
-        """The datastore-metadata commit this index was built from.
-
-        Recorded so a consumer can tell how stale its copy is. A checkout sitting
-        hundreds of commits behind under-reports what is streamable, and the only
-        defence is making the provenance visible.
-        """
+        """The datastore-metadata commit this index was built from, or None."""
         try:
             out = subprocess.run(
                 ["git", "-C", str(self.root), "rev-parse", "HEAD"],
@@ -358,10 +304,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return out.stdout.decode("utf-8", "replace").strip() or None
 
     def _load_filetypes(self):
-        """The vendored content vocabulary, or {} if it cannot be read.
-
-        A missing vocabulary degrades to no prediction; it does not fail the build.
-        """
+        """The vendored content vocabulary, or {} if it can't be read."""
         try:
             with open(FILETYPES_PATH, encoding="utf-8") as handle:
                 loaded = yaml.safe_load(handle)
@@ -372,11 +315,9 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     # ---------------------------------------------------------------- prediction
     def predicted_files(self, ctype, identifier, abbrev):
-        """Filenames a collection of this type is expected to publish.
+        """Filenames a collection of this type is expected to publish, or [].
 
-        Returns [] when the type has no documented vocabulary or is explicitly
-        unpredictable. Prediction is a default, not a guarantee -- callers must label
-        the result (see SRC_*).
+        A prediction, not a guarantee: callers must label the result (SRC_*).
         """
         spec = self.filetypes.get(ctype)
         if not isinstance(spec, dict) or spec.get("predictable") is False:
@@ -397,13 +338,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return not (isinstance(spec, dict) and spec.get("indexed") is False)
 
     def url_exists(self, url):
-        """HEAD one datastore URL.
-
-        The path is percent-encoded first: 21 collections carry non-ASCII names
-        (Nicolás, Valdés-López, Cortés, ...), and urllib raises UnicodeEncodeError on
-        those rather than returning a status -- which, caught below, would silently
-        report every one of their files as absent.
-        """
+        """HEAD one datastore URL, percent-encoded since urllib rejects non-ASCII."""
         request = urllib.request.Request(
             urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;="),
             method="HEAD",
@@ -427,12 +362,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     @staticmethod
     def plausible_indexes(name):
-        """Index suffixes worth probing for this filename.
-
-        A file's own type decides which siblings are even possible: .fai pairs with
-        FASTA, .bai/.csi with BAM, .crai with CRAM, .tbi/.csi with a bgzipped tabbed
-        file. Asking a .tsv.gz about a .bai is a guaranteed 404.
-        """
+        """Index suffixes possible for this file's type; others are certain 404s."""
         low = name.lower()
         if low.endswith(
             (
@@ -468,12 +398,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return INDEX_SUFFIXES
 
     def probe_indexes(self, collection, records):
-        """Records for the index siblings of ``records`` that a HEAD request finds.
-
-        Only reached under verify, and only for types that can carry indexes, so the
-        cost is a few dozen requests. Without it those files would have to be reported
-        as index-status-unknown.
-        """
+        """Records for the index siblings of ``records`` that a HEAD request finds."""
         names = [
             f"{record.relative_path}{suffix}"
             for record in records
@@ -483,11 +408,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return [self.file_record(collection, name, src=SRC_VERIFIED) for name in found]
 
     def predicted_records(self, collection):
-        """File records for a collection without a CHECKSUM, from the naming convention.
-
-        Also sets the collection's index_status to say how far the prediction was
-        checked.
-        """
+        """Convention-predicted file records; sets the collection's index_status."""
         ctype = collection.collection_type
         names = self.predicted_files(
             ctype,
@@ -505,12 +426,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
             src, collection.index_status = SRC_PREDICTED, STATUS_INFERRED
             self.stats["predicted_files"] += len(names)
         records = [self.file_record(collection, name, src=src) for name in names]
-        # Types documented as never carrying index siblings need no probing to know
-        # none of these files is randomly accessible. For the types that CAN carry
-        # them, an unprobed file's index status is genuinely unknown -- reporting it
-        # as "not indexed" would mark streamable data unreadable, which is the same
-        # mistake `index_status` exists to prevent. Verified: a markers .gff3.gz
-        # constructed this way does have a .tbi.
+        # Unprobed siblings are unknown, not absent.
         if records and self.type_is_indexed(ctype):
             if self.verify:
                 records.extend(self.probe_indexes(collection, records))
@@ -542,11 +458,9 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return record
 
     def parse_checksum(self, text, collection):
-        """Turn one manifest's contents into DatastoreFiles records.
+        """DatastoreFiles records from one CHECKSUM's text.
 
-        Only a leading ``./`` is stripped from each name. Stripping every leading dot
-        and slash would turn ``./.nextflow.log`` into ``nextflow.log``, a file that
-        does not exist.
+        Strips only a leading ``./``, so ``./.nextflow.log`` stays ``.nextflow.log``.
         """
         records = []
         for line in text.splitlines():
@@ -560,14 +474,10 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return records
 
     def checksum_files(self, coll_dir, collection):
-        """Records for every file the collection's CHECKSUM lists, or None without one.
+        """Records for every file listed by the directory's CHECKSUM.*.md5 files.
 
-        ``None`` and ``[]`` mean different things here and callers rely on it:
-        None is "we could not look", [] is "we looked and it is empty".
-
-        Every ``CHECKSUM.*.md5`` in the directory is read, not just the one named for
-        the directory: ``legume.fam1.M65K`` publishes ``CHECKSUM.mixed.fam1.M65K.md5``,
-        and one diversity collection publishes two. A file listed twice is kept once.
+        None means there is no CHECKSUM and [] that it lists nothing; callers depend on
+        the difference. A file listed twice is kept once.
         """
         paths = sorted(pathlib.Path(coll_dir).glob("CHECKSUM.*.md5"))
         if not paths:
@@ -608,12 +518,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return out
 
     def busco_summary(self, coll_dir):
-        """BUSCO scores and assembly counts, both from the committed summary.
-
-        The short_summary JSON carries ``Scaffold N50``/``Number of contigs``/
-        ``Total length`` alongside the completeness scores, so assembly metrics
-        need no ``.fai`` fetch and the build stays fully offline.
-        """
+        """(busco, counts) from the committed BUSCO short_summary, or (None, None)."""
         busco_dir = os.path.join(coll_dir, "BUSCO")
         if not os.path.isdir(busco_dir):
             return None, None
@@ -668,12 +573,10 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     # ------------------------------------------------------------------ building
     def find_collections(self):
-        """Yield (genus, species, collection_type, collection_key, dirpath, filenames).
+        """Yield (genus, species, type, key, dirpath, filenames) for each collection.
 
-        A collection qualifies on *any* metadata file. Keying off CHECKSUM alone
-        misses ~45% of the store (nearly every qtl, gwas and maps collection); keying
-        off README alone drops the five genome_alignments collections that publish
-        only a CHECKSUM, along with the indexed BAMs they hold.
+        A collection is any Genus/species/type/collection directory holding a README,
+        CHECKSUM or MANIFEST; no one of them is present in every collection.
         """
         root = str(self.root)
         for dirpath, _dirnames, filenames in os.walk(root):
@@ -690,11 +593,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     @staticmethod
     def _readme_filename(filenames):
-        """The collection's README, tolerating the extension-less form.
-
-        At least one collection ships a bare ``README`` rather than
-        ``README.<collection>.yml``; the contents are YAML either way.
-        """
+        """The collection's README file name, accepting a bare ``README``, or None."""
         for name in sorted(filenames):
             if name.startswith("README.") and name.endswith(".yml"):
                 return name
@@ -741,12 +640,9 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     @staticmethod
     def link_lineage(collections):
-        """Add ``derived_from`` edges and inherit assembly conventions along them.
+        """Add ``derived_from`` edges and copy INHERITED_FIELDS down them.
 
-        An annotation identifier embeds the assembly it was called against
-        (``Wm82.gnm4.ann1.T8TQ`` -> ``Wm82.gnm4``), so the edge is derivable
-        without any extra metadata. ``chromosome_prefix`` and friends live on the
-        genome README only, which is what makes the inheritance necessary.
+        The parent is in the identifier: ``Wm82.gnm4.ann1.T8TQ`` -> ``Wm82.gnm4``.
         """
         genomes = {}
         for collection in collections:
@@ -770,22 +666,10 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
                     collection.inherited.append(name)
 
     def pairwise_relationships(self):
-        """Genome pairs, derived from the filenames of synteny and alignment files.
+        """Genome pairs parsed from synteny and alignment file names.
 
-        A pairwise file is named ``<A>.x.<B>[.<epoch>].<KEY>[.<program>].<ext>`` -- some
-        alignments name their aligner, as in ``...x.cicec.S2Drd065.gnm1.PXV3.minimap2.bam``
-        -- and is stored ONCE, under whichever genome is the reference. So a genome's
-        relationships live in two places: its own collection (as A) and other species'
-        collections (as B). A
-        consumer that reads only a genome's own collection silently misses half its
-        synteny -- and, for a genome with no collection of its own (Medicago has none),
-        all of it.
-
-        Deriving the graph here means every consumer gets it for free and none of them
-        has to re-implement the filename parse. Self-comparisons carry a whole-genome-
-        duplication epoch instead of a partner (``...x.glyma.Wm82.gnm2.old_duplication``);
-        the epoch is kept rather than collapsed, because which duplication a block came
-        from is the informative part.
+        Use this over a genome's own collection: each file is stored once, under its
+        reference genome. Self-comparisons carry a duplication ``epoch``.
         """
         pairs = []
         for collection in self.collections.values():
@@ -820,14 +704,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return pairs
 
     def descriptions(self):
-        """Species- and genus-level metadata from ``about_this_collection``.
-
-        ``description_<Genus>[_<species>].yml`` carries the common name, NCBI taxid,
-        the abbreviation the datastore uses everywhere, a prose description, and links
-        to related resources (mines, browsers). None of it is on a collection README,
-        so without this a consumer cannot answer "what is soybean called here" or map
-        a common name onto a taxon at all.
-        """
+        """Genus- and species-level taxon metadata from ``about_this_collection``."""
         out = {}
         for dirpath, _dirnames, filenames in os.walk(str(self.root)):
             if os.sep + ".git" in dirpath or not dirpath.endswith(
@@ -882,12 +759,9 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
         return out
 
     def curated_symbols(self):
-        """Curated gene symbol -> gene id, from ``gene_functions/<abbrev>.traits.yml``.
+        """Curated gene symbol -> gene, from ``gene_functions/<abbrev>.traits.yml``.
 
-        These directories carry no README, so the collection walk skips them, but the
-        traits files ARE tracked in datastore-metadata. Folding them in lets a consumer
-        resolve a symbol like ``GmNARK`` without a network round-trip, and the file
-        also carries the gene's own publication DOI.
+        Walked separately, as these directories hold no collection metadata.
         """
         symbols = {}
         for dirpath, _dirnames, filenames in os.walk(str(self.root)):
@@ -935,8 +809,7 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
             stats["indexed_files"] += sum(1 for record in data if record.indexes)
             stats["with_doi"] += bool(collection.metadata.get("publication_doi"))
             stats["index_unknown"] += collection.index_status == STATUS_UNKNOWN
-            # Counted from what was parsed, so it stays truthful while the catalog
-            # withholds the metrics themselves (see the NOTE in catalog.py).
+            # Counts parsed summaries, whether or not the catalog emits them.
             stats["with_busco"] += collection.busco is not None
         stats["curated_symbols"] = sum(len(v) for v in self.gene_symbols.values())
         stats["described_taxa"] = len(self.taxa)
@@ -970,10 +843,9 @@ class DatastoreIndex:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     # ------------------------------------------------------------------- queries
     def select(self, collection_type=None, canonical_type=None, endswith=None):
-        """Filter indexed files by collection type, canonical type, or file suffix.
+        """Filter indexed files by collection type, canonical type or suffix.
 
-        Predicted files are included; check ``src`` when only CHECKSUM-listed or
-        HEAD-confirmed files will do.
+        Includes predicted files; filter on ``src`` for listed or confirmed ones only.
         """
         results = []
         for record in self.files:

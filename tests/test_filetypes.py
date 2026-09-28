@@ -1,12 +1,6 @@
-"""Guard the vendored file-content vocabulary against drift.
+"""Guard the vendored filetypes.yml against drift from datastore-specifications.
 
-`src/lis_autocontent/filetypes.yml` is a copy of what datastore-specifications documents in its
-template tree (Genus/species/<type>/<content>.md). A copy that silently falls behind is
-worse than no copy: predictions would quietly stop covering a content type, and the
-files would disappear from the catalog with no signal.
-
-The network check is skipped when GitHub is unreachable, so the suite stays runnable
-offline; the structural checks always run.
+The network check skips when GitHub is unreachable; structural checks always run.
 """
 
 import urllib.request
@@ -41,11 +35,11 @@ def test_every_entry_is_well_formed(vocabulary):
 
 
 def test_empirically_verified_flags_are_pinned(vocabulary):
-    """`prefix` and `indexed` are not in datastore-specifications, so the spec check
-    below cannot catch them drifting. Both were verified against the live store:
-    prefixless sets are named `Cicer.pan2.CMWZ.*` / `legume.fam1.M65K.*` (an abbrev in
-    front yields filenames that 404), and 72 probes across qtl/gwas/maps found no
-    index siblings (marking an indexable type unindexed hides streamable data)."""
+    """`prefix` and `indexed` aren't in the spec, so the spec check can't guard them.
+
+    Prefixless sets are named like `Cicer.pan2.CMWZ.*`; qtl, gwas and maps publish no
+    index siblings.
+    """
     prefixless = {t for t, s in vocabulary.items() if s.get("prefix") == "none"}
     unindexed = {t for t, s in vocabulary.items() if s.get("indexed") is False}
     assert prefixless == {"pangenes", "genefamilies"}

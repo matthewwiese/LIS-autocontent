@@ -71,11 +71,7 @@ class ProcessCollections:
         return False
 
     def head_remote(self, url):
-        """Uses requests.head to check a remote URL. Returns True if it exists, otherwise False.
-
-        A HEAD response has no body, so returning response.text here gave "" for every
-        file that exists, and callers treated each one as missing.
-        """
+        """True if the URL answers 200. HEAD has no body, so decide on status alone."""
         logger = self.logger
         response = requests.head(url, timeout=5)  # check remote object
         if response.status_code == 200:  # SUCCESS
@@ -134,11 +130,7 @@ class ProcessCollections:
                 parent = self.files[collection_type][dsfile]["parent"]
                 species = self.files[collection_type][dsfile]["species"]
                 infraspecies = self.files[collection_type][dsfile]["infraspecies"]
-                # The content type is normally the token before the extension, as in
-                # genome_main.fna.gz or protein.faa.gz. Bigwigs and PAFs have none there:
-                # the spec names them <collection>.<replicate_group>.bw and
-                # <A>.x.<B>.<KEY>[.<program>].paf.gz, so that token is a study name, a key
-                # or an aligner. For those, the file's format is the type.
+                # Bigwig and PAF names lack a content token; their format is the type.
                 if url.endswith(".bw"):
                     filetype = "bw"
                 elif url.endswith(".paf.gz"):
@@ -159,9 +151,7 @@ class ProcessCollections:
                     "infraspecies": infraspecies,
                     "derived_from": parent,
                 }
-                # Published metadata captured off the collection README. Without this
-                # the node carries no DOI, no taxid and no assembly conventions, and
-                # every consumer has to re-fetch the README to get them back.
+                # README metadata, so consumers needn't re-fetch the README.
                 for field in NODE_README_FIELDS:
                     value = self.files[collection_type][dsfile].get(field)
                     if value not in (None, "", [], {}, 0):
@@ -194,10 +184,7 @@ class ProcessCollections:
                         ):  # only process faa annotations in blast
                             continue
                         cmd = f"set -o pipefail -o errexit -o nounset; curl {url} | gzip -dc"  # retrieve genome and decompress
-                        # A protein set's name ends in the set, not a version
-                        # (cicar.CDCFrontier.gnm3.ann1.protein), and the assembly version
-                        # is needed too: otherwise the proteins of gnm1.ann1, gnm2.ann1 and
-                        # gnm3.ann1 would all share one title.
+                        # Set names lack a version; gnm and ann keep titles unique.
                         gnm, ann, protein_set = name.split(".")[2:5]
                         label = (
                             "Primary Proteins"
@@ -380,10 +367,6 @@ class ProcessCollections:
             )  # Feed response from GET to populate collections
         for collection_dir in self.collections:
             parts = collection_dir.split("/")
-            #            print(collection_dir, parts)
-            #            ['', 'falafel', 'ctc', 'sw', 'LIS-autocontent', 'datastore-metadata', 'Arachis', 'hypogaea', 'genomes', '']
-            #            ['', 'Arachis', 'hypogaea', 'genomes', 'BaileyII.gnm1.1JTF', '']
-            #            sys.exit(1)
             logger.debug(parts)
             name = parts[4]
             url = ""
@@ -414,12 +397,6 @@ class ProcessCollections:
                             "assembly": lookup,
                             "loc": f"{ref}:1-1000000",  # JBrowse2 does not allow null loc
                             "type": "LinearGenomeView",
-                            #                                            "tracks": [
-                            #                                                " gff3tabix_genes " ,
-                            #                                                " volvox_filtered_vcf " ,
-                            #                                                " volvox_microarray " ,
-                            #                                                " volvox_cram "
-                            #                                            ]
                         }
                     ]
                 }
@@ -525,17 +502,6 @@ class ProcessCollections:
                     }
                 else:
                     logger.debug(f"protein failed:{protein_url}, {protein_response}")
-            ###
-            #            elif collection_type == "synteny":  # DEPRICATED?
-            #                checksum_url = f"{self.datastore_url}{collection_dir}CHECKSUM.{parts[1]}.md5"
-            #                checksum_response = requests.get(checksum_url)
-            #                if checksum_response.status_code == 200:
-            #                    continue
-            #                else:  # CheckSum FAILURE
-            #                    logger.debug(
-            #                        f"GET Failed for checksum {checksum_response.status_code} {checksum_url}"
-            #                    )
-            ###
             elif (
                 collection_type == "genome_alignments"
             ):  # Synteny after the new changes. Parent is a tuple with both genome_main files
@@ -687,12 +653,6 @@ class ProcessCollections:
                                             "tracks": [
                                                 ".".join(bw_lookup.split(".")[:-1])
                                             ],
-                                            # ["glyma.Wm82.gnm6.ann1.expr.mixed.Kour_Boone_2014.Clark_defective"]
-                                            #                                                " gff3tabix_genes " ,
-                                            #                                                " volvox_filtered_vcf " ,
-                                            #                                                " volvox_microarray " ,
-                                            #                                                " volvox_cram "
-                                            #                                            ]
                                         }
                                     ]
                                 }
@@ -731,11 +691,7 @@ class ProcessCollections:
                 readme = yaml.load(readme_response, Loader=yaml.FullLoader)
                 logger.debug(readme)
                 synopsis = readme["synopsis"]
-                # Carry the published metadata onto every file entry from this
-                # collection, not just the collection-level one: a collection yields
-                # several entries ("<lookup>", "<lookup>.protein", ...) and each becomes
-                # its own node. Anything not copied here is silently lost -- which is
-                # how publication_doi and taxid used to disappear.
+                # Copy onto every entry of the collection: each becomes its own node.
                 metadata = {}
                 for field in NODE_README_FIELDS:
                     value = readme.get(field)
@@ -895,11 +851,7 @@ class ProcessCollections:
             self.species_collections_handle.close()
 
     def discover_genera(self):
-        """Return every genus in the datastore clone, sorted.
-
-        A directory counts as a genus only when it holds a GENUS description
-        file, which excludes non-taxonomic tops such as LEGUMES and .github.
-        """
+        """Every genus in the clone (directories with a GENUS description), sorted."""
         root = pathlib.Path(self.from_github)
         candidates = sorted(
             entry.name
@@ -945,12 +897,7 @@ class ProcessCollections:
     def parse_collections(
         self, from_github="./datastore-metadata", target=None
     ):  # refactored from SammyJava
-        """Retrieve and output collections for jekyll site.
-
-        from_github is the datastore-metadata clone to read. With no target,
-        every genus found there is processed; pass a taxon list yml to restrict
-        the run to a subset.
-        """
+        """Read collections from the from_github clone; target restricts the genera."""
         if from_github and os.path.isdir(from_github):  # use local clone
             self.from_github = os.path.abspath(from_github)
             self.logger.info(

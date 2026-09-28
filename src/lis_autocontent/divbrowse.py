@@ -1,18 +1,7 @@
-"""Build a Divbrowse docker-compose.yml for chosen diversity collections.
+"""Build a Divbrowse docker-compose.yml, one service per diversity collection.
 
-legumeinfo/divbrowse ships a docker-compose.yml with one service per diversity dataset.
-Each service downloads a VCF and a GFF3, keeps the chromosomes matching CHROM_PATTERN,
-and serves them under BASE_URL. All four values come from datastore metadata:
-
-    VCF_URL        the diversity collection's one VCF
-    GFF3_URL       gene_models_main of the one annotation of the linked genome
-    CHROM_PATTERN  <abbrev>.<strain>.<gnm>.<chromosome_prefix>[0-9]+, from that genome
-    BASE_URL       <base_url>/<collection>/
-
-The file is written in the upstream layout. A collection that can't be expressed that
-way -- several VCFs or none, no linked genome, several annotations, or a
-chromosome_prefix that isn't a single prefix -- stops the build with every reason
-reported, rather than producing a service built on a guess.
+Each service's VCF_URL, GFF3_URL, CHROM_PATTERN and BASE_URL come from metadata. A
+collection that can't supply all four unambiguously fails the build with its reasons.
 """
 
 import re
@@ -65,9 +54,7 @@ class DivbrowseError(Exception):
 
 
 def service_name(identifier):
-    """Compose names each service's image after the service, and image names must be
-    lowercase: `docker compose build` rejects divbrowse-Wm82.gnm4.div.Song_Hyten_2015.
-    """
+    """Compose service name; lowercase, since compose rejects uppercase image names."""
     return f"divbrowse-{identifier.lower()}"
 
 
@@ -77,10 +64,9 @@ def data_directory(identifier):
 
 
 def service_environment(index, identifier, base_url):
-    """VCF_URL, GFF3_URL, CHROM_PATTERN and BASE_URL for one diversity collection.
+    """(environment, problems) for one diversity collection.
 
-    Returns (environment, problems). The environment is None whenever there are
-    problems, so no service is ever written from a partial or guessed value.
+    environment is None whenever there are problems, so nothing is built on a guess.
     """
     matches = [
         c
@@ -176,10 +162,9 @@ def service_environment(index, identifier, base_url):
 
 
 def compose_file(index, identifiers, base_url, first_port):
-    """The docker-compose.yml text for these collections, as services in the order given.
+    """The docker-compose.yml text, one service per identifier in the order given.
 
-    Raises DivbrowseError listing every problem with every collection when any of them
-    can't be expressed; nothing is returned in that case.
+    Raises DivbrowseError listing every problem with every collection.
     """
     problems = {}
     blocks = []

@@ -1,9 +1,4 @@
-"""Tests for the catalog document built from the datastore index.
-
-These pin what consumers read: the document shape, the index-status and `src` labels,
-index flags, README propagation, lineage and inheritance. Parsing details of the index
-itself are covered in test_datastore_files.py; the fixture tree is in conftest.py.
-"""
+"""The catalog document: shape, provenance labels, README propagation, lineage."""
 
 import json
 import os
@@ -85,9 +80,7 @@ references:
 
 
 def _complete_the_tree(metadata_dir, write):
-    """Add the parts of the document no other fixture populates: a data file in a
-    subdirectory (1,127 real ones, all under BUSCO/), a synteny edge, curated gene
-    symbols and taxon descriptions."""
+    """Add a BUSCO/ data file, a synteny edge, gene symbols and taxon descriptions."""
     checksum = os.path.join(
         metadata_dir, ANNOTATION, "CHECKSUM.Wm82.gnm4.ann1.T8TQ.md5"
     )
@@ -124,14 +117,10 @@ def _complete_the_tree(metadata_dir, write):
 
 @pytest.mark.usefixtures("markers_collection")
 def test_the_document_matches_the_reviewed_expected_output(metadata_dir, write):
-    """The catalog is a published contract, so the whole document is pinned against a
-    reviewed copy in tests/data. The named tests explain individual rules; this one
-    catches the changes they do not anticipate -- a renamed key, a lost subdirectory in
-    a file path, a dropped gene symbol, a miscounted stat, a reordered list.
+    """The whole document matches its reviewed copy in tests/data.
 
-    When a change to the document is intended, regenerate the copy with
-    `LIS_UPDATE_EXPECTED=1 pytest tests/test_catalog.py` and review its diff before
-    committing it: regenerating without reading the diff defeats the test."""
+    After an intended change: `LIS_UPDATE_EXPECTED=1 pytest`, then review the diff.
+    """
     _complete_the_tree(metadata_dir, write)
     document = json.loads(json.dumps(CatalogBuilder(metadata_dir).build()))
     for volatile in ("built_at", "source_commit"):  # clock and checkout dependent
@@ -161,9 +150,7 @@ def test_document_carries_schema_and_build_stamp(catalog):
 def test_every_readme_field_is_carried_verbatim(
     metadata_dir, write, ctype, key, has_checksum
 ):
-    """The regression this exists to prevent: taxid and publication_doi were both
-    parsed and then dropped before reaching a consumer. Whether a collection has a
-    CHECKSUM changes its file list, never its metadata."""
+    """README fields reach the catalog whether or not the collection has a CHECKSUM."""
     assert set(EVERY_README_FIELD) == set(README_FIELDS)  # keep this table complete
     path = f"Glycine/max/{ctype}/{key}"
     coll = os.path.join(metadata_dir, path)
@@ -180,10 +167,10 @@ def test_every_readme_field_is_carried_verbatim(
 
 # --- index status: how the file list was obtained -----------------------------
 def test_index_status_and_src_record_how_each_file_list_was_obtained(catalog):
-    """Consumers rely on the difference: `known`/`checksum` came from a CHECKSUM,
-    `inferred`/`predicted` were constructed from the documented convention, `unknown`
-    means neither was possible. Collapsing them presents a guess as a fact. (`verified`
-    is covered by test_verify_keeps_only_files_that_exist.)"""
+    """known/checksum, inferred/predicted and unknown stay distinct.
+
+    `verified` is covered by test_verify_keeps_only_files_that_exist.
+    """
     records = _by_path(catalog)
     observed = {
         path: (
@@ -230,9 +217,7 @@ def test_manifest_placeholder_description_is_dropped(catalog):
 
 # --- BUSCO and counts --------------------------------------------------------
 def test_metrics_are_not_emitted_yet(catalog):
-    """Deliberately deferred: see the NOTE in catalog.py. This test exists so the
-    omission is a decision on record rather than something that quietly regresses
-    in either direction."""
+    """BUSCO metrics are withheld from the catalog; see the NOTE in catalog.py."""
     genome = _by_path(catalog)[GENOME]
     assert "busco" not in genome
     assert "counts" not in genome
@@ -276,12 +261,11 @@ def test_genomes_do_not_derive_from_themselves(catalog):
 
 
 def test_pairwise_relationships_are_derived_from_file_names(metadata_dir, write):
-    """A pairwise file is stored once, under its reference genome; the catalog lifts
-    synteny and whole-genome alignments into one edge list sorted by genome pair,
-    keeping any duplication epoch. Alignments come named both with and without their
-    aligner (`...LXVF.bam`, `...PXV3.minimap2.bam`); a pattern that only knew the first
-    dropped every Cicer alignment. The alignment collection sorts first on disk, so the
-    expected order below only holds if the list is actually sorted."""
+    """Synteny and alignments become one edge list, sorted by pair, epochs kept.
+
+    Alignment names come with and without the aligner (`...LXVF.bam`,
+    `...PXV3.minimap2.bam`); the alignment collection sorts first on disk.
+    """
     synteny = "Glycine/max/synteny/Wm82.gnm4.synt.PXV3"
     partner = "glyma.Wm82.gnm4.x.phavu.G19833.gnm2.PXV3.gff3.gz"
     self_pair = "glyma.Wm82.gnm4.x.glyma.Wm82.gnm4.old_duplication.PXV3.gff3.gz"
@@ -401,10 +385,10 @@ def test_write_round_trips(metadata_dir, tmp_path):
 
 
 def test_unreadable_readme_degrades_the_record_not_the_build(metadata_dir, write):
-    """One malformed file must not sink a 1,000-collection build — and must not drop
-    the collection either. A real datastore collection ships a README that is not
-    valid YAML; its files are still real and still worth cataloguing. With no README
-    there is no abbrev, so no filename is predicted either."""
+    """A malformed README degrades its collection's record, not the build.
+
+    Its files are still catalogued; with no abbrev, none are predicted.
+    """
     broken = os.path.join(metadata_dir, "Glycine", "max", "maps", "Bad.map.X")
     write(os.path.join(broken, "README.Bad.map.X.yml"), "---\n: : not yaml : :\n")
     catalog = CatalogBuilder(metadata_dir).build()

@@ -1,15 +1,7 @@
-"""End-to-end tests of the CLI subcommands and the artifacts they hand downstream.
+"""End-to-end CLI tests: each subcommand against a small clone, network stubbed.
 
-Each subcommand runs through click against a small datastore-metadata clone with the
-network stubbed out. That catches wiring mistakes in lis_cli.py -- an option missing
-from a function's signature, arguments passed in the wrong order -- as well as changes
-to what consumers receive: DSCensor node files, BLAST and JBrowse2 commands, and the
-Jekyll YAML.
-
-The expected artifacts in tests/data/cli/ were reviewed by hand. When a change to an
-artifact is intended, regenerate them with `LIS_UPDATE_EXPECTED=1 pytest
-tests/test_cli.py` and review the diff before committing it: regenerating without
-reading the diff defeats the test.
+Artifacts are compared with reviewed copies in tests/data/cli/. After an intended
+change, run `LIS_UPDATE_EXPECTED=1 pytest tests/test_cli.py` and review the diff.
 """
 
 import json
@@ -75,9 +67,10 @@ def _checksum(*names):
 
 @pytest.fixture(name="clone")
 def fixture_clone(tmp_path, write):
-    """One genus and species, with one collection of each type the subcommands turn
-    into artifacts -- one per type, so the filesystem's listing order cannot reorder
-    the output -- plus a qtl collection for the catalog's file prediction."""
+    """One collection per artifact-producing type, plus a qtl for file prediction.
+
+    One per type, so directory listing order can't reorder the output.
+    """
     root = tmp_path / "datastore-metadata"
 
     def put(relative, content):
@@ -209,10 +202,10 @@ def fixture_taxa_list(tmp_path):
 
 @pytest.fixture(name="network")
 def fixture_network(monkeypatch):
-    """Answer the only remote requests these subcommands make: a genome's .fai, to place
-    JBrowse2 sessions, and HEAD checks for protein files, of which only the full set
-    exists here. Any other request fails the test, so no run can quietly depend on the
-    live datastore."""
+    """Stub the only remote requests: a genome's .fai and protein HEAD checks.
+
+    Only the full protein set exists. Any other request fails the test.
+    """
 
     def fake_get(url, timeout=None):  # pylint: disable=unused-argument
         if url.endswith(".genome_main.fna.gz.fai"):
@@ -261,10 +254,10 @@ def _skip_if_updating():
 def test_populate_catalog_passes_its_options_to_the_builder(
     clone, tmp_path, monkeypatch, verify
 ):
-    """`--verify` was declared but missing from the function signature, so every run
-    failed with TypeError. The document itself is pinned in test_catalog.py; this checks
-    that each option reaches the builder (the qtl collection is `verified` only if
-    --verify does)."""
+    """Each option reaches the builder.
+
+    The qtl collection is `verified` only if --verify arrives.
+    """
     monkeypatch.setattr(DatastoreIndex, "url_exists", lambda self, url: True)
     out = tmp_path / "out" / "catalog.json"
     args = [
@@ -295,10 +288,10 @@ def test_populate_catalog_passes_its_options_to_the_builder(
 def test_populate_dscensor_writes_the_reviewed_nodes(
     clone, taxa_list, tmp_path, with_taxa_list
 ):
-    """One node per genome, annotation, protein set that exists, whole-genome alignment
-    and bigwig, each carrying the README fields consumers read. The nodes are the same
-    whether genera come from a taxa list or are discovered from the clone; passing the
-    two in the wrong order once made every run fail."""
+    """One node per genome, annotation, existing protein set, alignment and bigwig.
+
+    The nodes are the same whether genera come from a taxa list or discovery.
+    """
     out = tmp_path / "nodes"
     args = [
         "--nodes_out",

@@ -109,8 +109,9 @@ basics. Beyond those:
 - **Vocabularies are module constants** (`SRC_*`, `STATUS_*`, `README_FIELDS`), never
   repeated string literals. Regexes are compiled module constants; name the groups
   you capture.
-- **Offline and deterministic.** Sort collections and files. No timestamps, set iteration
-  order or network access in an artifact path, except behind an explicit flag (`--verify`).
+- **Offline and deterministic.** Sort collections and files. Apart from the catalog's
+  `built_at` stamp, an artifact depends only on the checkout: no set iteration order, and
+  no network access except behind an explicit flag (`--verify`).
 - **Degrade loudly.** Missing or unreadable input yields an empty value and a
   `logger.warning`: never a crash, never a silent default.
 - **Validate completely.** Collect every problem, then fail once listing them all
