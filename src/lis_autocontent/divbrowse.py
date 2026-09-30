@@ -1,7 +1,8 @@
 """Build a Divbrowse docker-compose.yml, one service per diversity collection.
 
-Each service's VCF_URL, GFF3_URL, CHROM_PATTERN and BASE_URL come from metadata. A
-collection that can't supply all four unambiguously fails the build with its reasons.
+A Traefik proxy routes to each service by its divbrowse.host and divbrowse.path labels.
+A collection that can't supply VCF_URL, GFF3_URL and CHROM_PATTERN unambiguously fails
+the build with its reasons.
 """
 
 import re
@@ -10,32 +11,57 @@ HEADER = """# Divbrowse Docker Compose
 #
 # Just run: docker compose up -d
 #
-# On first start, each service will automatically:
+# On first start, each Divbrowse service will automatically:
 #   1. Download VCF and GFF3 from the specified URLs
 #   2. Convert VCF to Zarr format
 #   3. Generate configuration
 #   4. Start the server
 #
 # Data is persisted in ./data/<name>/ directories.
+#
+# Routing: the `proxy` service (Traefik) listens on PROXY_PORT (default 80)
+# and routes http://<divbrowse.host>/<divbrowse.path>/ to each Divbrowse
+# service, based on the two labels set on it. To add a dataset, add a service
+# using the x-divbrowse template with those labels, then `docker compose up -d`.
+# Per-host root redirects live in traefik/dynamic/divbrowse.yml.
+
+x-divbrowse: &divbrowse
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
 
 services:
+  proxy:
+    image: traefik:v3
+    ports:
+      - "${PROXY_PORT:-80}:80"
+    volumes:
+      # Rootless Docker: set DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik:ro
+    restart: unless-stopped
+
 """
 
 SERVICE = """  {name}:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *divbrowse
     environment:
       - VCF_URL={vcf_url}
       - GFF3_URL={gff3_url}
       - CHROM_PATTERN={chrom_pattern}
-      - BASE_URL={base_url}
-    ports:
-      - "{port}:8080"
+    labels:
+      divbrowse.host: {host}
+      divbrowse.path: {path}
     volumes:
       - ./data/{data_dir}:/opt/divbrowse
-    restart: unless-stopped
 """
+
+# Public hostname per genus; --host adds to or overrides these.
+DEFAULT_HOSTS = {
+    "Glycine": "divbrowse.soybase.org",
+    "Arachis": "divbrowse.peanutbase.org",
+}
 
 # Characters a compose service name, a data directory and an unquoted YAML value can
 # all carry. Every diversity identifier in the store fits.
@@ -46,7 +72,8 @@ TOKEN = re.compile(r"[A-Za-z0-9_-]+")
 # A chromosome prefix. Some READMEs list chromosome names instead ("chr,Pt,Mt"), which
 # cannot be turned into a pattern.
 PREFIX = re.compile(r"[A-Za-z0-9_]+")
-MAX_PORT = 65535
+# A hostname both a Traefik Host() rule and an unquoted YAML value can carry.
+HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
 
 
 class DivbrowseError(Exception):
@@ -63,8 +90,8 @@ def data_directory(identifier):
     return identifier
 
 
-def service_environment(index, identifier, base_url):
-    """(environment, problems) for one diversity collection.
+def service_environment(index, identifier, hosts):
+    """(environment, problems) for one diversity collection; hosts maps genus -> host.
 
     environment is None whenever there are problems, so nothing is built on a guess.
     """
@@ -83,6 +110,14 @@ def service_environment(index, identifier, base_url):
     problems = []
     if not IDENTIFIER.fullmatch(identifier):
         problems.append("its identifier has characters a compose file can't carry")
+    host = hosts.get(collection.genus)
+    if host is None:
+        problems.append(
+            f"no Divbrowse host for genus {collection.genus}; "
+            f"pass --host {collection.genus}=<hostname>"
+        )
+    elif not HOSTNAME.fullmatch(host):
+        problems.append(f"its host {host!r} is not a hostname")
     vcfs = [
         r.relative_path
         for r in collection.data_files
@@ -157,11 +192,11 @@ def service_environment(index, identifier, base_url):
         "gff3_url": f"{index.datastore_url}/{annotations[0].path}/{gff3[0]}",
         "chrom_pattern": f"{abbrev}.{strain}.{gnm}.{prefix}".replace(".", r"\.")
         + "[0-9]+",
-        "base_url": f"{base_url.rstrip('/')}/{identifier}/",
+        "host": host,
     }, []
 
 
-def compose_file(index, identifiers, base_url, first_port):
+def compose_file(index, identifiers, hosts=None):
     """The docker-compose.yml text, one service per identifier in the order given.
 
     Raises DivbrowseError listing every problem with every collection.
@@ -176,25 +211,22 @@ def compose_file(index, identifiers, base_url, first_port):
             )
             continue
         seen.add(identifier)
-        environment, reasons = service_environment(index, identifier, base_url)
+        environment, reasons = service_environment(
+            index, identifier, DEFAULT_HOSTS if hosts is None else hosts
+        )
         if reasons:
             problems.setdefault(identifier, []).extend(reasons)
             continue
         blocks.append(
             SERVICE.format(
                 name=service_name(identifier),
-                port=first_port + len(blocks),
+                path=identifier,
                 data_dir=data_directory(identifier),
                 **environment,
             )
         )
     if not identifiers:
         problems[""] = ["no collections were requested"]
-    last_port = first_port + len(identifiers) - 1
-    if identifiers and not 1 <= first_port <= last_port <= MAX_PORT:
-        problems.setdefault("", []).append(
-            f"ports {first_port}-{last_port} fall outside 1-{MAX_PORT}"
-        )
     if problems:
         raise DivbrowseError(
             "\n".join(

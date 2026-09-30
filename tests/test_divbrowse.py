@@ -1,7 +1,8 @@
-"""populate-divbrowse against legumeinfo/divbrowse's own docker-compose.yml.
+"""populate-divbrowse against the Traefik layout drafted for legumeinfo/divbrowse.
 
-The upstream file is vendored in tests/data/divbrowse/, as of upstream eaf28a6. The
-output must equal it except for service names and data directories.
+The reference in tests/data/divbrowse/ is that draft minus its peanut services, whose
+combined two-genome references aren't supported. The output must equal it except for
+service names and data directories.
 """
 
 import os
@@ -12,9 +13,11 @@ import yaml
 from click.testing import CliRunner
 
 from lis_autocontent import lis_cli
+from lis_autocontent.datastore_files import DatastoreIndex
+from lis_autocontent.divbrowse import DivbrowseError, compose_file
 
-UPSTREAM = os.path.join(
-    os.path.dirname(__file__), "data", "divbrowse", "upstream-docker-compose.yml"
+REFERENCE = os.path.join(
+    os.path.dirname(__file__), "data", "divbrowse", "traefik-docker-compose.yml"
 )
 MD5 = "d41d8cd98f00b204e9800998ecf8427e"
 SOYBEAN = (
@@ -22,7 +25,7 @@ SOYBEAN = (
     "Wm82.gnm5.div.Song_Hyten_2015",
     "Wm82.gnm6.div.Song_Hyten_2015",
 )
-# Upstream's hand-picked names, and what they become. Nothing else may differ.
+# The reference's hand-picked names, and what they become. Nothing else may differ.
 RENAMES = {
     "  divbrowse-gnm4:": "  divbrowse-wm82.gnm4.div.song_hyten_2015:",
     "  divbrowse-gnm5:": "  divbrowse-wm82.gnm5.div.song_hyten_2015:",
@@ -80,7 +83,7 @@ def _diversity(write, root, identifier, files):
 
 @pytest.fixture(name="clone")
 def fixture_clone(tmp_path, write):
-    """The metadata behind upstream's three services, mirroring the real store:
+    """The metadata behind the reference's three services, mirroring the real store:
     gnm5 names its chromosomes Chr, gnm4 and gnm6 name them Gm."""
     root = str(tmp_path / "datastore-metadata")
     for strain_gnm, key, prefix, annotation in (
@@ -105,10 +108,10 @@ def _run(clone, tmp_path, collections, *options):
     return result, out
 
 
-def test_the_upstream_file_is_reproduced_with_collection_names(clone, tmp_path):
+def test_the_traefik_layout_is_reproduced_with_collection_names(clone, tmp_path):
     result, out = _run(clone, tmp_path, SOYBEAN)
     assert result.exit_code == 0, result.output
-    with open(UPSTREAM, encoding="utf-8") as handle:
+    with open(REFERENCE, encoding="utf-8") as handle:
         expected = handle.read()
     for old, new in RENAMES.items():
         assert expected.count(old) == 1, old  # each rename lands exactly once
@@ -121,6 +124,7 @@ def test_service_names_are_valid_image_names(clone, tmp_path):
     uppercase; every diversity identifier in the store has some."""
     _, out = _run(clone, tmp_path, SOYBEAN)
     services = yaml.safe_load(out.read_text(encoding="utf-8"))["services"]
+    services.pop("proxy")
     component = re.compile(r"[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*")
     assert all(component.fullmatch(name) for name in services)
     assert [s["volumes"] for s in services.values()] == [
@@ -130,30 +134,43 @@ def test_service_names_are_valid_image_names(clone, tmp_path):
 
 def test_deployment_options_reach_the_file(clone, tmp_path):
     options = (
-        "--base_url",
-        "https://example.org/divbrowse/",
-        "--port",
-        "9000",
+        "--host",
+        "Glycine=divbrowse.example.org",
         "--datastore_url",
         "https://mirror.example.org",
     )
     result, out = _run(clone, tmp_path, SOYBEAN[1:], *options)
     assert result.exit_code == 0, result.output
-    services = list(
-        yaml.safe_load(out.read_text(encoding="utf-8"))["services"].values()
-    )
-    assert [s["ports"] for s in services] == [["9000:8080"], ["9001:8080"]]
-    environment = dict(entry.split("=", 1) for entry in services[0]["environment"])
-    assert (
-        environment["BASE_URL"]
-        == "https://example.org/divbrowse/Wm82.gnm5.div.Song_Hyten_2015/"
-    )
+    services = yaml.safe_load(out.read_text(encoding="utf-8"))["services"]
+    services.pop("proxy")
+    service = services["divbrowse-wm82.gnm5.div.song_hyten_2015"]
+    assert service["labels"] == {
+        "divbrowse.host": "divbrowse.example.org",
+        "divbrowse.path": "Wm82.gnm5.div.Song_Hyten_2015",
+    }
+    assert "ports" not in service  # the proxy is the only way in
+    environment = dict(entry.split("=", 1) for entry in service["environment"])
+    assert "BASE_URL" not in environment
     assert environment["VCF_URL"].startswith(
         "https://mirror.example.org/Glycine/max/diversity/"
     )
     assert environment["GFF3_URL"].startswith(
         "https://mirror.example.org/Glycine/max/annotations/"
     )
+
+
+def test_a_genus_without_a_host_stops_the_build(clone):
+    index = DatastoreIndex(clone).build()
+    with pytest.raises(DivbrowseError) as err:
+        compose_file(index, SOYBEAN[:1], hosts={"Arachis": "divbrowse.peanutbase.org"})
+    assert "no Divbrowse host for genus Glycine" in str(err.value)
+
+
+@pytest.mark.parametrize("host", ["divbrowse.example.org", "Glycine=bad host"])
+def test_malformed_hosts_write_nothing(clone, tmp_path, host):
+    result, out = _run(clone, tmp_path, SOYBEAN, "--host", host)
+    assert result.exit_code != 0
+    assert not out.exists()
 
 
 def _several_vcfs(write, root):

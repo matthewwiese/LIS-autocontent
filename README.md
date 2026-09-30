@@ -193,8 +193,8 @@ only timeouts, refused connections and 408/429/5xx responses are retried.
 ## Building a Divbrowse compose file
 
 `populate-divbrowse` writes a [Divbrowse](https://github.com/legumeinfo/divbrowse)
-`docker-compose.yml` with one service per diversity collection, offline from a
-`datastore-metadata` checkout:
+`docker-compose.yml` with one service per diversity collection behind a Traefik proxy,
+offline from a `datastore-metadata` checkout:
 
 ```
 lis-autocontent populate-divbrowse --from_github ./datastore-metadata \
@@ -205,16 +205,23 @@ lis-autocontent populate-divbrowse --from_github ./datastore-metadata \
 ```
 
 Each service gets the collection's VCF, the `gene_models_main` GFF3 of its assembly's
-annotation, a `CHROM_PATTERN` built from the genome's `chromosome_prefix`, and a
-`BASE_URL` under `--base_url` (default `https://divbrowse.soybase.org`); host ports start
-at `--port` (default 8080). The services build from the Divbrowse `Dockerfile`, so write
-the file to the root of a divbrowse checkout. Service names are the collection
-identifier in lowercase, because Docker image names must be lowercase; data directories
-keep the identifier as-is.
+annotation, and a `CHROM_PATTERN` built from the genome's `chromosome_prefix`. The
+`proxy` service listens on `PROXY_PORT` (default 80) and routes
+`http://<host>/<collection>/` to each service by its `divbrowse.host` and
+`divbrowse.path` labels. Hosts are per genus: Glycine is served from
+`divbrowse.soybase.org` and Arachis from `divbrowse.peanutbase.org`; `--host
+GENUS=HOSTNAME` adds or overrides one.
+
+Write the file to the root of a divbrowse checkout: the services build from its
+`Dockerfile`, and the proxy reads its `traefik/` configuration. Service names are the
+collection identifier in lowercase, because Docker image names must be lowercase; data
+directories keep the identifier as-is.
 
 A collection this format can't express stops the command with the reason, and nothing
-is written: several VCFs or none, no linked genome assembly, more than one annotation,
-or a `chromosome_prefix` that isn't a single prefix.
+is written: several VCFs or none, no linked genome assembly, more than one annotation, a
+`chromosome_prefix` that isn't a single prefix, or a genus with no host. Collections
+called against a combined reference of several genomes, such as the peanut
+`aradu1_araip1.gnm1` ones, are not supported.
 
 ### Building it on GitHub Actions
 

@@ -8,8 +8,19 @@ import logging
 import click
 from .catalog import CatalogBuilder
 from .datastore_files import DatastoreIndex
-from .divbrowse import DivbrowseError, compose_file
+from .divbrowse import DEFAULT_HOSTS, DivbrowseError, compose_file
 from .process_collections import ProcessCollections
+
+
+def parse_hosts(_ctx, _param, values):
+    """--host GENUS=HOSTNAME values as {genus: hostname}."""
+    hosts = {}
+    for value in values:
+        genus, sep, host = value.partition("=")
+        if not (sep and genus and host):
+            raise click.BadParameter(f"{value!r} is not GENUS=HOSTNAME")
+        hosts[genus] = host
+    return hosts
 
 
 def setup_logging(log_file, log_level, process):
@@ -285,8 +296,8 @@ def populate_catalog(
     "--compose_out",
     default="./docker-compose.yml",
     help="""Where to write the compose file. Its services build from the Dockerfile beside
-    it, so write it to the root of a legumeinfo/divbrowse checkout.
-    (Default: ./docker-compose.yml)""",
+    it and its proxy reads traefik/ beside it, so write it to the root of a
+    legumeinfo/divbrowse checkout. (Default: ./docker-compose.yml)""",
 )
 @click.option(
     "--datastore_url",
@@ -294,17 +305,14 @@ def populate_catalog(
     help="""URL the VCF and GFF3 links are built against.""",
 )
 @click.option(
-    "--base_url",
-    default="https://divbrowse.soybase.org",
-    help="""Public URL the Divbrowse instances are served under; each service gets
-    <base_url>/<collection>/. (Default: https://divbrowse.soybase.org)""",
-)
-@click.option(
-    "--port",
-    default=8080,
-    type=int,
-    help="""Host port of the first service; each further service takes the next one.
-    (Default: 8080)""",
+    "--host",
+    "hosts",
+    multiple=True,
+    metavar="GENUS=HOSTNAME",
+    callback=parse_hosts,
+    help="""Public hostname for a genus's services, served at http://<host>/<collection>/.
+    Repeatable; adds to or overrides the defaults, Glycine=divbrowse.soybase.org and
+    Arachis=divbrowse.peanutbase.org.""",
 )
 @click.option(
     "--log_file",
@@ -321,15 +329,14 @@ def populate_divbrowse(
     from_github,
     compose_out,
     datastore_url,
-    base_url,
-    port,
+    hosts,
     log_file,
     log_level,
 ):
     """CLI entry for populate-divbrowse
 
     Writes a Divbrowse docker-compose.yml with one service per diversity collection,
-    built offline from a datastore-metadata checkout. A collection the format can't
+    behind a Traefik proxy, built offline from a datastore-metadata checkout. A collection the format can't
     express stops the command without writing anything.
     """
     logger = setup_logging(log_file, log_level, "populate-divbrowse")
@@ -337,7 +344,7 @@ def populate_divbrowse(
         from_github, logger=logger, datastore_url=datastore_url
     ).build()
     try:
-        text = compose_file(index, collections, base_url=base_url, first_port=port)
+        text = compose_file(index, collections, hosts={**DEFAULT_HOSTS, **hosts})
     except DivbrowseError as err:
         logger.error("not writing %s:\n%s", compose_out, err)
         raise click.ClickException(

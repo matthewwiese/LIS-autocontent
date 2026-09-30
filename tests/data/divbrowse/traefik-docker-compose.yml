@@ -2,56 +2,69 @@
 #
 # Just run: docker compose up -d
 #
-# On first start, each service will automatically:
+# On first start, each Divbrowse service will automatically:
 #   1. Download VCF and GFF3 from the specified URLs
 #   2. Convert VCF to Zarr format
 #   3. Generate configuration
 #   4. Start the server
 #
 # Data is persisted in ./data/<name>/ directories.
+#
+# Routing: the `proxy` service (Traefik) listens on PROXY_PORT (default 80)
+# and routes http://<divbrowse.host>/<divbrowse.path>/ to each Divbrowse
+# service, based on the two labels set on it. To add a dataset, add a service
+# using the x-divbrowse template with those labels, then `docker compose up -d`.
+# Per-host root redirects live in traefik/dynamic/divbrowse.yml.
+
+x-divbrowse: &divbrowse
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
 
 services:
+  proxy:
+    image: traefik:v3
+    ports:
+      - "${PROXY_PORT:-80}:80"
+    volumes:
+      # Rootless Docker: set DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik:ro
+    restart: unless-stopped
+
   divbrowse-gnm4:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *divbrowse
     environment:
       - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm4.div.Song_Hyten_2015/glyma.Wm82.gnm4.div.Song_Hyten_2015.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ/glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz
       - CHROM_PATTERN=glyma\.Wm82\.gnm4\.Gm[0-9]+
-      - BASE_URL=https://divbrowse.soybase.org/Wm82.gnm4.div.Song_Hyten_2015/
-    ports:
-      - "8080:8080"
+    labels:
+      divbrowse.host: divbrowse.soybase.org
+      divbrowse.path: Wm82.gnm4.div.Song_Hyten_2015
     volumes:
       - ./data/gnm4:/opt/divbrowse
-    restart: unless-stopped
 
   divbrowse-gnm5:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *divbrowse
     environment:
       - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm5.div.Song_Hyten_2015/glyma.Wm82.gnm5.div.Song_Hyten_2015.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm5.ann1.J7HW/glyma.Wm82.gnm5.ann1.J7HW.gene_models_main.gff3.gz
       - CHROM_PATTERN=glyma\.Wm82\.gnm5\.Chr[0-9]+
-      - BASE_URL=https://divbrowse.soybase.org/Wm82.gnm5.div.Song_Hyten_2015/
-    ports:
-      - "8081:8080"
+    labels:
+      divbrowse.host: divbrowse.soybase.org
+      divbrowse.path: Wm82.gnm5.div.Song_Hyten_2015
     volumes:
       - ./data/gnm5:/opt/divbrowse
-    restart: unless-stopped
 
   divbrowse-gnm6:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *divbrowse
     environment:
       - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm6.div.Song_Hyten_2015/glyma.Wm82.gnm6.div.Song_Hyten_2015.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm6.ann1.PKSW/glyma.Wm82.gnm6.ann1.PKSW.gene_models_main.gff3.gz
       - CHROM_PATTERN=glyma\.Wm82\.gnm6\.Gm[0-9]+
-      - BASE_URL=https://divbrowse.soybase.org/Wm82.gnm6.div.Song_Hyten_2015/
-    ports:
-      - "8082:8080"
+    labels:
+      divbrowse.host: divbrowse.soybase.org
+      divbrowse.path: Wm82.gnm6.div.Song_Hyten_2015
     volumes:
       - ./data/gnm6:/opt/divbrowse
-    restart: unless-stopped
