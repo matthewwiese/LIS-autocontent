@@ -1,10 +1,9 @@
-# Diversity collections built into the Divbrowse docker-compose.yml by
-# .github/workflows/populate-divbrowse.yml: one identifier per line, in service order.
+# Diversity collections for the Divbrowse docker-compose.yml, one identifier per line in
+# service order, each passed as --collection to `lis-autocontent populate-divbrowse`.
 # Blank lines and anything after # are ignored.
-#
-# Each collection must be one `lis-autocontent populate-divbrowse` can express: one VCF,
-# a linked genome assembly with one annotation, and a single chromosome_prefix. If any
-# can't be, the workflow fails with the reason and nothing is uploaded or announced.
 Wm82.gnm4.div.Song_Hyten_2015
 Wm82.gnm5.div.Song_Hyten_2015
 Wm82.gnm6.div.Song_Hyten_2015
+aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020
+aradu1_araip1.gnm1.div.Otyama_Wilkey_2019
+aradu1_araip1.gnm1.div.Clevenger_Korani_2018

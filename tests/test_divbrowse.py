@@ -1,8 +1,7 @@
 """populate-divbrowse against the Traefik layout drafted for legumeinfo/divbrowse.
 
-The reference in tests/data/divbrowse/ is that draft minus its peanut services, whose
-combined two-genome references aren't supported. The output must equal it except for
-service names and data directories.
+The reference in tests/data/divbrowse/ is that draft. The output must equal it except
+for service names and data directories.
 """
 
 import os
@@ -25,6 +24,12 @@ SOYBEAN = (
     "Wm82.gnm5.div.Song_Hyten_2015",
     "Wm82.gnm6.div.Song_Hyten_2015",
 )
+# Called against aradu1_araip1.gnm1, the two progenitor genomes concatenated.
+PEANUT = (
+    "aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020",
+    "aradu1_araip1.gnm1.div.Otyama_Wilkey_2019",
+    "aradu1_araip1.gnm1.div.Clevenger_Korani_2018",
+)
 # The reference's hand-picked names, and what they become. Nothing else may differ.
 RENAMES = {
     "  divbrowse-gnm4:": "  divbrowse-wm82.gnm4.div.song_hyten_2015:",
@@ -33,6 +38,24 @@ RENAMES = {
     "./data/gnm4:": "./data/Wm82.gnm4.div.Song_Hyten_2015:",
     "./data/gnm5:": "./data/Wm82.gnm5.div.Song_Hyten_2015:",
     "./data/gnm6:": "./data/Wm82.gnm6.div.Song_Hyten_2015:",
+    "  divbrowse-arahy-otyama-kulkarni-2020:": (
+        "  divbrowse-aradu1_araip1.gnm1.div.otyama_kulkarni_2020:"
+    ),
+    "  divbrowse-arahy-otyama-wilkey-2019:": (
+        "  divbrowse-aradu1_araip1.gnm1.div.otyama_wilkey_2019:"
+    ),
+    "  divbrowse-arahy-clevenger-korani-2018:": (
+        "  divbrowse-aradu1_araip1.gnm1.div.clevenger_korani_2018:"
+    ),
+    "./data/arahy-otyama-kulkarni-2020:": (
+        "./data/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020:"
+    ),
+    "./data/arahy-otyama-wilkey-2019:": (
+        "./data/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019:"
+    ),
+    "./data/arahy-clevenger-korani-2018:": (
+        "./data/aradu1_araip1.gnm1.div.Clevenger_Korani_2018:"
+    ),
 }
 
 
@@ -40,15 +63,24 @@ def _checksum(*names):
     return "\n".join(f"{MD5}  ./{name}" for name in names) + "\n"
 
 
-def _assembly(write, root, strain_gnm, key, prefix, annotations=("ann1.AAAA",)):
-    """A Glycine max genome with its annotations, as datastore-metadata lays them out."""
+def _assembly(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    write,
+    root,
+    strain_gnm,
+    key,
+    prefix,
+    annotations=("ann1.AAAA",),
+    taxon=("Glycine/max", "glyma"),
+):
+    """A genome with its annotations, as datastore-metadata lays them out."""
+    species, abbrev = taxon
     genome = f"{strain_gnm}.{key}"
     write(
-        os.path.join(root, f"Glycine/max/genomes/{genome}/README.{genome}.yml"),
+        os.path.join(root, f"{species}/genomes/{genome}/README.{genome}.yml"),
         yaml.safe_dump(
             {
                 "identifier": genome,
-                "scientific_name_abbrev": "glyma",
+                "scientific_name_abbrev": abbrev,
                 "chromosome_prefix": prefix,
             }
         ),
@@ -56,35 +88,36 @@ def _assembly(write, root, strain_gnm, key, prefix, annotations=("ann1.AAAA",)):
     for annotation in annotations:
         ann = f"{strain_gnm}.{annotation}"
         write(
-            os.path.join(root, f"Glycine/max/annotations/{ann}/README.{ann}.yml"),
-            yaml.safe_dump({"identifier": ann, "scientific_name_abbrev": "glyma"}),
+            os.path.join(root, f"{species}/annotations/{ann}/README.{ann}.yml"),
+            yaml.safe_dump({"identifier": ann, "scientific_name_abbrev": abbrev}),
         )
-        gff3 = f"glyma.{ann}.gene_models_main.gff3.gz"
+        gff3 = f"{abbrev}.{ann}.gene_models_main.gff3.gz"
         write(
-            os.path.join(root, f"Glycine/max/annotations/{ann}/CHECKSUM.{ann}.md5"),
-            _checksum(gff3, gff3 + ".tbi", f"glyma.{ann}.protein.faa.gz"),
+            os.path.join(root, f"{species}/annotations/{ann}/CHECKSUM.{ann}.md5"),
+            _checksum(gff3, gff3 + ".tbi", f"{abbrev}.{ann}.protein.faa.gz"),
         )
 
 
-def _diversity(write, root, identifier, files):
+def _diversity(write, root, identifier, files, taxon=("Glycine/max", "glyma")):
+    species, abbrev = taxon
+    base = os.path.join(root, f"{species}/diversity/{identifier}")
     write(
-        os.path.join(
-            root, f"Glycine/max/diversity/{identifier}/README.{identifier}.yml"
-        ),
-        yaml.safe_dump({"identifier": identifier, "scientific_name_abbrev": "glyma"}),
+        os.path.join(base, f"README.{identifier}.yml"),
+        yaml.safe_dump({"identifier": identifier, "scientific_name_abbrev": abbrev}),
     )
-    write(
-        os.path.join(
-            root, f"Glycine/max/diversity/{identifier}/CHECKSUM.{identifier}.md5"
-        ),
-        _checksum(*files),
-    )
+    write(os.path.join(base, f"CHECKSUM.{identifier}.md5"), _checksum(*files))
+
+
+def _peanut_diversity(write, root, identifier, vcfs):
+    files = [name for vcf in vcfs for name in (vcf, vcf + ".tbi")]
+    _diversity(write, root, identifier, files, taxon=("Arachis/hypogaea", "arahy"))
 
 
 @pytest.fixture(name="clone")
 def fixture_clone(tmp_path, write):
-    """The metadata behind the reference's three services, mirroring the real store:
-    gnm5 names its chromosomes Chr, gnm4 and gnm6 name them Gm."""
+    """The metadata behind the reference's services, mirroring the real store: gnm5
+    names its chromosomes Chr, gnm4 and gnm6 Gm; peanut's progenitors Aradu.A and
+    Araip.B, and Kulkarni publishes a subset VCF beside its main one."""
     root = str(tmp_path / "datastore-metadata")
     for strain_gnm, key, prefix, annotation in (
         ("Wm82.gnm4", "4PTR", "Gm", "ann1.T8TQ"),
@@ -95,6 +128,30 @@ def fixture_clone(tmp_path, write):
         identifier = f"{strain_gnm}.div.Song_Hyten_2015"
         vcf = f"glyma.{identifier}.vcf.gz"
         _diversity(write, root, identifier, (vcf, vcf + ".tbi"))
+    _assembly(
+        write,
+        root,
+        "V14167.gnm1",
+        "SWBf",
+        "Aradu.A",
+        annotations=("ann1.cxSM",),
+        taxon=("Arachis/duranensis", "aradu"),
+    )
+    _assembly(
+        write,
+        root,
+        "K30076.gnm1",
+        "bXJ8",
+        "Araip.B",
+        annotations=("ann1.J37m",),
+        taxon=("Arachis/ipaensis", "araip"),
+    )
+    kulkarni, wilkey, clevenger = PEANUT
+    _peanut_diversity(
+        write, root, kulkarni, (f"{kulkarni}.main.vcf.gz", f"{kulkarni}.sub10k.vcf.gz")
+    )
+    _peanut_diversity(write, root, wilkey, (f"arahy.{wilkey}.snp_chip.vcf.gz",))
+    _peanut_diversity(write, root, clevenger, (f"{clevenger}.snp_chip.vcf.gz",))
     return root
 
 
@@ -109,7 +166,7 @@ def _run(clone, tmp_path, collections, *options):
 
 
 def test_the_traefik_layout_is_reproduced_with_collection_names(clone, tmp_path):
-    result, out = _run(clone, tmp_path, SOYBEAN)
+    result, out = _run(clone, tmp_path, SOYBEAN + PEANUT)
     assert result.exit_code == 0, result.output
     with open(REFERENCE, encoding="utf-8") as handle:
         expected = handle.read()
@@ -122,13 +179,13 @@ def test_the_traefik_layout_is_reproduced_with_collection_names(clone, tmp_path)
 def test_service_names_are_valid_image_names(clone, tmp_path):
     """Compose names each service's image after it, and `docker compose build` rejects
     uppercase; every diversity identifier in the store has some."""
-    _, out = _run(clone, tmp_path, SOYBEAN)
+    _, out = _run(clone, tmp_path, SOYBEAN + PEANUT)
     services = yaml.safe_load(out.read_text(encoding="utf-8"))["services"]
     services.pop("proxy")
     component = re.compile(r"[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*")
     assert all(component.fullmatch(name) for name in services)
     assert [s["volumes"] for s in services.values()] == [
-        [f"./data/{identifier}:/opt/divbrowse"] for identifier in SOYBEAN
+        [f"./data/{identifier}:/opt/divbrowse"] for identifier in SOYBEAN + PEANUT
     ]
 
 
@@ -164,6 +221,18 @@ def test_a_genus_without_a_host_stops_the_build(clone):
     with pytest.raises(DivbrowseError) as err:
         compose_file(index, SOYBEAN[:1], hosts={"Arachis": "divbrowse.peanutbase.org"})
     assert "no Divbrowse host for genus Glycine" in str(err.value)
+
+
+def test_a_combined_reference_needs_every_genome(tmp_path, write):
+    root = str(tmp_path / "datastore-metadata")
+    identifier = PEANUT[1]
+    _peanut_diversity(write, root, identifier, (f"arahy.{identifier}.vcf.gz",))
+    with pytest.raises(DivbrowseError) as err:
+        compose_file(DatastoreIndex(root).build(), [identifier])
+    assert (
+        "its combined reference lacks Arachis/duranensis/genomes/V14167.gnm1.SWBf, "
+        "Arachis/ipaensis/genomes/K30076.gnm1.bXJ8" in str(err.value)
+    )
 
 
 @pytest.mark.parametrize("host", ["divbrowse.example.org", "Glycine=bad host"])

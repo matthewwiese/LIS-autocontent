@@ -217,11 +217,18 @@ Write the file to the root of a divbrowse checkout: the services build from its
 collection identifier in lowercase, because Docker image names must be lowercase; data
 directories keep the identifier as-is.
 
+Some collections are called against a combined reference: the peanut
+`aradu1_araip1.gnm1` ones use the *A. duranensis* V14167 and *A. ipaensis* K30076
+genomes, concatenated. Their services get one GFF3 per genome, space-separated in
+`GFF3_URL`, which needs a Divbrowse `setup.sh` that accepts several URLs, and a
+`CHROM_PATTERN` anchored to both genomes' chromosomes. The metadata doesn't name a
+combined reference's genomes, so they are listed in `COMBINED_REFERENCES` in
+`divbrowse.py`.
+
 A collection this format can't express stops the command with the reason, and nothing
-is written: several VCFs or none, no linked genome assembly, more than one annotation, a
-`chromosome_prefix` that isn't a single prefix, or a genus with no host. Collections
-called against a combined reference of several genomes, such as the peanut
-`aradu1_araip1.gnm1` ones, are not supported.
+is written: no VCF, or several with no single `.main` one; no linked genome assembly;
+more than one annotation; a `chromosome_prefix` that isn't a single prefix; or a genus
+with no host.
 
 ### Building it on GitHub Actions
 
