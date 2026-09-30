@@ -206,7 +206,7 @@ lis-autocontent populate-divbrowse --from_github ./datastore-metadata \
 
 Each service gets the collection's VCF, the `gene_models_main` GFF3 of its assembly's
 annotation, and a `CHROM_PATTERN` built from the genome's `chromosome_prefix`. The
-`proxy` service listens on `PROXY_PORT` (default 80) and routes
+`proxy` service listens on `PROXY_PORT` (default 8080) and routes
 `http://<host>/<collection>/` to each service by its `divbrowse.host` and
 `divbrowse.path` labels. Hosts are per genus, set in
 [`src/lis_autocontent/divbrowse.yml`](src/lis_autocontent/divbrowse.yml): Glycine is

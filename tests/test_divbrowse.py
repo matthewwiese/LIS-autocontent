@@ -1,7 +1,7 @@
 """populate-divbrowse against the Traefik layout drafted for legumeinfo/divbrowse.
 
-The reference in tests/data/divbrowse/ is that draft. The output must equal it except
-for service names and data directories.
+The reference in tests/data/divbrowse/ is that draft, with the proxy on 8080 by
+default. The output must equal it except for service names and data directories.
 """
 
 import os

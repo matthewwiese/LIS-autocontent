@@ -23,7 +23,7 @@ HEADER = """# Divbrowse Docker Compose
 #
 # Data is persisted in ./data/<name>/ directories.
 #
-# Routing: the `proxy` service (Traefik) listens on PROXY_PORT (default 80)
+# Routing: the `proxy` service (Traefik) listens on PROXY_PORT (default 8080)
 # and routes http://<divbrowse.host>/<divbrowse.path>/ to each Divbrowse
 # service, based on the two labels set on it. To add a dataset, add a service
 # using the x-divbrowse template with those labels, then `docker compose up -d`.
@@ -39,7 +39,7 @@ services:
   proxy:
     image: traefik:v3
     ports:
-      - "${PROXY_PORT:-80}:80"
+      - "${PROXY_PORT:-8080}:80"
     volumes:
       # Rootless Docker: set DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
