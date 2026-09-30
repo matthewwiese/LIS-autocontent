@@ -32,21 +32,15 @@ PEANUT = (
 )
 # The reference's hand-picked names, and what they become. Nothing else may differ.
 RENAMES = {
-    "  divbrowse-gnm4:": "  divbrowse-wm82.gnm4.div.song_hyten_2015:",
-    "  divbrowse-gnm5:": "  divbrowse-wm82.gnm5.div.song_hyten_2015:",
-    "  divbrowse-gnm6:": "  divbrowse-wm82.gnm6.div.song_hyten_2015:",
+    "divbrowse-gnm4:": "divbrowse-wm82.gnm4.div.song_hyten_2015:",
+    "divbrowse-gnm5:": "divbrowse-wm82.gnm5.div.song_hyten_2015:",
+    "divbrowse-gnm6:": "divbrowse-wm82.gnm6.div.song_hyten_2015:",
     "./data/gnm4:": "./data/Wm82.gnm4.div.Song_Hyten_2015:",
     "./data/gnm5:": "./data/Wm82.gnm5.div.Song_Hyten_2015:",
     "./data/gnm6:": "./data/Wm82.gnm6.div.Song_Hyten_2015:",
-    "  divbrowse-arahy-otyama-kulkarni-2020:": (
-        "  divbrowse-aradu1_araip1.gnm1.div.otyama_kulkarni_2020:"
-    ),
-    "  divbrowse-arahy-otyama-wilkey-2019:": (
-        "  divbrowse-aradu1_araip1.gnm1.div.otyama_wilkey_2019:"
-    ),
-    "  divbrowse-arahy-clevenger-korani-2018:": (
-        "  divbrowse-aradu1_araip1.gnm1.div.clevenger_korani_2018:"
-    ),
+    "divbrowse-arahy-otyama-kulkarni-2020:": "divbrowse-aradu1_araip1.gnm1.div.otyama_kulkarni_2020:",
+    "divbrowse-arahy-otyama-wilkey-2019:": "divbrowse-aradu1_araip1.gnm1.div.otyama_wilkey_2019:",
+    "divbrowse-arahy-clevenger-korani-2018:": "divbrowse-aradu1_araip1.gnm1.div.clevenger_korani_2018:",
     "./data/arahy-otyama-kulkarni-2020:": (
         "./data/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020:"
     ),
@@ -171,9 +165,22 @@ def test_the_traefik_layout_is_reproduced_with_collection_names(clone, tmp_path)
     with open(REFERENCE, encoding="utf-8") as handle:
         expected = handle.read()
     for old, new in RENAMES.items():
-        assert expected.count(old) == 1, old  # each rename lands exactly once
+        assert expected.count(old) >= 1, old  # a service name recurs in depends_on
         expected = expected.replace(old, new)
     assert out.read_text(encoding="utf-8") == expected
+
+
+def test_services_start_one_after_another_once_healthy(clone, tmp_path):
+    _, out = _run(clone, tmp_path, SOYBEAN + PEANUT)
+    services = yaml.safe_load(out.read_text(encoding="utf-8"))["services"]
+    assert "depends_on" not in services.pop("proxy")  # routes each one once it's up
+    names = list(services)
+    assert "depends_on" not in services[names[0]]
+    for before, after in zip(names, names[1:]):
+        assert services[after]["depends_on"] == {
+            before: {"condition": "service_healthy"}
+        }
+    assert all("healthcheck" in service for service in services.values())
 
 
 def test_service_names_are_valid_image_names(clone, tmp_path):

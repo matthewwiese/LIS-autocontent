@@ -26,14 +26,27 @@ HEADER = """# Divbrowse Docker Compose
 # Routing: the `proxy` service (Traefik) listens on PROXY_PORT (default 8080)
 # and routes http://<divbrowse.host>/<divbrowse.path>/ to each Divbrowse
 # service, based on the two labels set on it. To add a dataset, add a service
-# using the x-divbrowse template with those labels, then `docker compose up -d`.
+# using the x-divbrowse template with those labels and a depends_on on the last
+# service, then `docker compose up -d`.
 # Per-host root redirects live in traefik/dynamic/divbrowse.yml.
+#
+# Startup: Divbrowse services start one at a time, each once the one before it
+# is healthy, so first-time setups never run at once. `docker compose up` waits
+# through them; later starts skip setup and are quick.
 
 x-divbrowse: &divbrowse
   build:
     context: .
     dockerfile: Dockerfile
   restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    # First-time setup (download, VCF to Zarr) runs within this period.
+    start_period: 2h
+    start_interval: 30s
 
 services:
   proxy:
@@ -50,7 +63,7 @@ services:
 
 SERVICE = """  {name}:
     <<: *divbrowse
-    environment:
+{depends_on}    environment:
       - VCF_URL={vcf_url}
       - GFF3_URL={gff3_url}
       - CHROM_PATTERN={chrom_pattern}
@@ -59,6 +72,11 @@ SERVICE = """  {name}:
       divbrowse.path: {path}
     volumes:
       - ./data/{data_dir}:/opt/divbrowse
+"""
+
+DEPENDS_ON = """    depends_on:
+      {previous}:
+        condition: service_healthy
 """
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "divbrowse.yml")
@@ -301,6 +319,7 @@ def compose_file(index, identifiers, hosts=None):
     blocks = []
     seen = set()
     noted = set()
+    previous = None
     for identifier in identifiers:
         if identifier in seen:
             problems.setdefault(identifier, []).append(
@@ -316,6 +335,7 @@ def compose_file(index, identifiers, hosts=None):
             continue
         block = SERVICE.format(
             name=service_name(identifier),
+            depends_on=DEPENDS_ON.format(previous=previous) if previous else "",
             path=identifier,
             data_dir=data_directory(identifier),
             # Compose interpolates $; $$ is a literal one.
@@ -327,6 +347,7 @@ def compose_file(index, identifiers, hosts=None):
             noted.add(reference)
             block = "".join(f"  # {line}\n" for line in note) + block
         blocks.append(block)
+        previous = service_name(identifier)
     if not identifiers:
         problems[""] = ["no collections were requested"]
     if problems:

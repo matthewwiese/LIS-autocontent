@@ -13,14 +13,27 @@
 # Routing: the `proxy` service (Traefik) listens on PROXY_PORT (default 8080)
 # and routes http://<divbrowse.host>/<divbrowse.path>/ to each Divbrowse
 # service, based on the two labels set on it. To add a dataset, add a service
-# using the x-divbrowse template with those labels, then `docker compose up -d`.
+# using the x-divbrowse template with those labels and a depends_on on the last
+# service, then `docker compose up -d`.
 # Per-host root redirects live in traefik/dynamic/divbrowse.yml.
+#
+# Startup: Divbrowse services start one at a time, each once the one before it
+# is healthy, so first-time setups never run at once. `docker compose up` waits
+# through them; later starts skip setup and are quick.
 
 x-divbrowse: &divbrowse
   build:
     context: .
     dockerfile: Dockerfile
   restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    # First-time setup (download, VCF to Zarr) runs within this period.
+    start_period: 2h
+    start_interval: 30s
 
 services:
   proxy:
@@ -47,6 +60,9 @@ services:
 
   divbrowse-gnm5:
     <<: *divbrowse
+    depends_on:
+      divbrowse-gnm4:
+        condition: service_healthy
     environment:
       - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm5.div.Song_Hyten_2015/glyma.Wm82.gnm5.div.Song_Hyten_2015.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm5.ann1.J7HW/glyma.Wm82.gnm5.ann1.J7HW.gene_models_main.gff3.gz
@@ -59,6 +75,9 @@ services:
 
   divbrowse-gnm6:
     <<: *divbrowse
+    depends_on:
+      divbrowse-gnm5:
+        condition: service_healthy
     environment:
       - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm6.div.Song_Hyten_2015/glyma.Wm82.gnm6.div.Song_Hyten_2015.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm6.ann1.PKSW/glyma.Wm82.gnm6.ann1.PKSW.gene_models_main.gff3.gz
@@ -74,6 +93,9 @@ services:
   # plus A. ipaensis K30076 (B subgenome), hence the two GFF3 files.
   divbrowse-arahy-otyama-kulkarni-2020:
     <<: *divbrowse
+    depends_on:
+      divbrowse-gnm6:
+        condition: service_healthy
     environment:
       - VCF_URL=https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020.main.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
@@ -86,6 +108,9 @@ services:
 
   divbrowse-arahy-otyama-wilkey-2019:
     <<: *divbrowse
+    depends_on:
+      divbrowse-arahy-otyama-kulkarni-2020:
+        condition: service_healthy
     environment:
       - VCF_URL=https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019/arahy.aradu1_araip1.gnm1.div.Otyama_Wilkey_2019.snp_chip.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
@@ -98,6 +123,9 @@ services:
 
   divbrowse-arahy-clevenger-korani-2018:
     <<: *divbrowse
+    depends_on:
+      divbrowse-arahy-otyama-wilkey-2019:
+        condition: service_healthy
     environment:
       - VCF_URL=https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Clevenger_Korani_2018/aradu1_araip1.gnm1.div.Clevenger_Korani_2018.snp_chip.vcf.gz
       - GFF3_URL=https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
