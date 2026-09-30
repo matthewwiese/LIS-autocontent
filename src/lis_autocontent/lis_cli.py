@@ -8,7 +8,7 @@ import logging
 import click
 from .catalog import CatalogBuilder
 from .datastore_files import DatastoreIndex
-from .divbrowse import DEFAULT_HOSTS, DivbrowseError, compose_file
+from .divbrowse import DivbrowseError, compose_file, load_config
 from .process_collections import ProcessCollections
 
 
@@ -311,8 +311,7 @@ def populate_catalog(
     metavar="GENUS=HOSTNAME",
     callback=parse_hosts,
     help="""Public hostname for a genus's services, served at http://<host>/<collection>/.
-    Repeatable; adds to or overrides the defaults, Glycine=divbrowse.soybase.org and
-    Arachis=divbrowse.peanutbase.org.""",
+    Repeatable; adds to or overrides the defaults in divbrowse.yml.""",
 )
 @click.option(
     "--log_file",
@@ -344,7 +343,8 @@ def populate_divbrowse(
         from_github, logger=logger, datastore_url=datastore_url
     ).build()
     try:
-        text = compose_file(index, collections, hosts={**DEFAULT_HOSTS, **hosts})
+        defaults = load_config()["hosts"]
+        text = compose_file(index, collections, hosts={**defaults, **hosts})
     except DivbrowseError as err:
         logger.error("not writing %s:\n%s", compose_out, err)
         raise click.ClickException(

@@ -208,9 +208,10 @@ Each service gets the collection's VCF, the `gene_models_main` GFF3 of its assem
 annotation, and a `CHROM_PATTERN` built from the genome's `chromosome_prefix`. The
 `proxy` service listens on `PROXY_PORT` (default 80) and routes
 `http://<host>/<collection>/` to each service by its `divbrowse.host` and
-`divbrowse.path` labels. Hosts are per genus: Glycine is served from
-`divbrowse.soybase.org` and Arachis from `divbrowse.peanutbase.org`; `--host
-GENUS=HOSTNAME` adds or overrides one.
+`divbrowse.path` labels. Hosts are per genus, set in
+[`src/lis_autocontent/divbrowse.yml`](src/lis_autocontent/divbrowse.yml): Glycine is
+served from `divbrowse.soybase.org` and Arachis from `divbrowse.peanutbase.org`, and
+`--host GENUS=HOSTNAME` adds or overrides one.
 
 Write the file to the root of a divbrowse checkout: the services build from its
 `Dockerfile`, and the proxy reads its `traefik/` configuration. Service names are the
@@ -222,8 +223,8 @@ Some collections are called against a combined reference: the peanut
 genomes, concatenated. Their services get one GFF3 per genome, space-separated in
 `GFF3_URL`, which needs a Divbrowse `setup.sh` that accepts several URLs, and a
 `CHROM_PATTERN` anchored to both genomes' chromosomes. The metadata doesn't name a
-combined reference's genomes, so they are listed in `COMBINED_REFERENCES` in
-`divbrowse.py`.
+combined reference's genomes, so `divbrowse.yml` lists them under
+`combined_references`.
 
 A collection this format can't express stops the command with the reason, and nothing
 is written: no VCF, or several with no single `.main` one; no linked genome assembly;

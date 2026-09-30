@@ -1,0 +1,18 @@
+# Service configuration for `lis-autocontent populate-divbrowse`.
+
+# Public hostname per genus; --host GENUS=HOSTNAME adds to or overrides these.
+hosts:
+  Glycine: divbrowse.soybase.org
+  Arachis: divbrowse.peanutbase.org
+
+# References made by concatenating genomes, keyed as collection identifiers name them.
+# genomes: in concatenation order. note: comment lines written above their services.
+combined_references:
+  aradu1_araip1.gnm1:
+    genomes:
+      - Arachis/duranensis/genomes/V14167.gnm1.SWBf
+      - Arachis/ipaensis/genomes/K30076.gnm1.bXJ8
+    note:
+      - "Peanut (Arachis hypogaea) diversity data are called against a combined"
+      - "reference of the diploid progenitors: A. duranensis V14167 (A subgenome)"
+      - "plus A. ipaensis K30076 (B subgenome), hence the two GFF3 files."

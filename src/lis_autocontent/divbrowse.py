@@ -2,10 +2,14 @@
 
 A Traefik proxy routes to each service by its divbrowse.host and divbrowse.path labels.
 A collection that can't supply VCF_URL, GFF3_URL and CHROM_PATTERN unambiguously fails
-the build with its reasons.
+the build with its reasons. Hosts and combined references come from divbrowse.yml.
 """
 
+import functools
+import os
 import re
+
+import yaml
 
 HEADER = """# Divbrowse Docker Compose
 #
@@ -57,27 +61,7 @@ SERVICE = """  {name}:
       - ./data/{data_dir}:/opt/divbrowse
 """
 
-# Public hostname per genus; --host adds to or overrides these.
-DEFAULT_HOSTS = {
-    "Glycine": "divbrowse.soybase.org",
-    "Arachis": "divbrowse.peanutbase.org",
-}
-
-# References made by concatenating genomes, keyed as collection identifiers name them:
-# the genomes in concatenation order, and the comment lines above their services.
-COMBINED_REFERENCES = {
-    "aradu1_araip1.gnm1": {
-        "genomes": (
-            "Arachis/duranensis/genomes/V14167.gnm1.SWBf",
-            "Arachis/ipaensis/genomes/K30076.gnm1.bXJ8",
-        ),
-        "note": (
-            "Peanut (Arachis hypogaea) diversity data are called against a combined",
-            "reference of the diploid progenitors: A. duranensis V14167 (A subgenome)",
-            "plus A. ipaensis K30076 (B subgenome), hence the two GFF3 files.",
-        ),
-    },
-}
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "divbrowse.yml")
 
 # Characters a compose service name, a data directory and an unquoted YAML value can
 # all carry. Every diversity identifier in the store fits.
@@ -94,6 +78,46 @@ HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
 
 class DivbrowseError(Exception):
     """Raised when the requested collections can't all be expressed as services."""
+
+
+def _strings(value):
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+@functools.lru_cache(maxsize=None)
+def load_config(path=CONFIG_PATH):
+    """divbrowse.yml's hosts and combined_references; DivbrowseError if unusable."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as err:
+        raise DivbrowseError(f"cannot read {path}: {err}") from err
+    config = config if isinstance(config, dict) else {}
+    hosts = config.get("hosts")
+    references = config.get("combined_references") or {}
+    problems = []
+    if not (
+        isinstance(hosts, dict)
+        and all(isinstance(k, str) and isinstance(v, str) for k, v in hosts.items())
+    ):
+        problems.append("hosts must map each genus to a hostname")
+    if not isinstance(references, dict):
+        problems.append("combined_references must be a mapping")
+        references = {}
+    for name, reference in references.items():
+        if not (
+            isinstance(reference, dict)
+            and _strings(reference.get("genomes"))
+            and reference["genomes"]
+            and _strings(reference.get("note", []))
+        ):
+            problems.append(
+                f"combined reference {name} needs a genomes list, and a note list"
+                " if any"
+            )
+    if problems:
+        raise DivbrowseError(f"{path}: {'; '.join(problems)}")
+    return {"hosts": hosts, "combined_references": references}
 
 
 def service_name(identifier):
@@ -113,7 +137,9 @@ def reference_name(identifier):
 
 def reference_genomes(index, collection):
     """(genomes, problems) for the genomes a diversity collection is called against."""
-    combined = COMBINED_REFERENCES.get(reference_name(collection.collection_key))
+    combined = load_config()["combined_references"].get(
+        reference_name(collection.collection_key)
+    )
     if combined:
         genomes = [index.collections.get(path) for path in combined["genomes"]]
         missing = [p for p, g in zip(combined["genomes"], genomes) if g is None]
@@ -283,7 +309,7 @@ def compose_file(index, identifiers, hosts=None):
             continue
         seen.add(identifier)
         environment, reasons = service_environment(
-            index, identifier, DEFAULT_HOSTS if hosts is None else hosts
+            index, identifier, load_config()["hosts"] if hosts is None else hosts
         )
         if reasons:
             problems.setdefault(identifier, []).extend(reasons)
@@ -296,7 +322,7 @@ def compose_file(index, identifiers, hosts=None):
             **{key: value.replace("$", "$$") for key, value in environment.items()},
         )
         reference = reference_name(identifier)
-        note = COMBINED_REFERENCES.get(reference, {}).get("note")
+        note = load_config()["combined_references"].get(reference, {}).get("note")
         if note and reference not in noted:
             noted.add(reference)
             block = "".join(f"  # {line}\n" for line in note) + block

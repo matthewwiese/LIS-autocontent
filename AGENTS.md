@@ -93,7 +93,8 @@ callers depend on the difference.
 - `catalog.py` serializes the index to one JSON document and holds no logic of its own.
   Its shape is versioned: change it only with `SCHEMA_VERSION`.
 - `divbrowse.py` builds one compose service per diversity collection and refuses any
-  collection the format can't express.
+  collection the format can't express. Per-genus hosts and combined references are
+  data in `divbrowse.yml`, package data like `filetypes.yml`.
 
 New metadata belongs on `DatastoreIndex` (a field or a pass) and reaches consumers through
 the catalog. Don't re-walk the checkout elsewhere. Change `ProcessCollections` only to keep

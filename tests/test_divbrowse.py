@@ -13,7 +13,7 @@ from click.testing import CliRunner
 
 from lis_autocontent import lis_cli
 from lis_autocontent.datastore_files import DatastoreIndex
-from lis_autocontent.divbrowse import DivbrowseError, compose_file
+from lis_autocontent.divbrowse import DivbrowseError, compose_file, load_config
 
 REFERENCE = os.path.join(
     os.path.dirname(__file__), "data", "divbrowse", "traefik-docker-compose.yml"
@@ -233,6 +233,26 @@ def test_a_combined_reference_needs_every_genome(tmp_path, write):
         "its combined reference lacks Arachis/duranensis/genomes/V14167.gnm1.SWBf, "
         "Arachis/ipaensis/genomes/K30076.gnm1.bXJ8" in str(err.value)
     )
+
+
+@pytest.mark.parametrize(
+    "text, reason",
+    [
+        (None, "cannot read"),
+        ("hosts: [divbrowse.soybase.org]\n", "hosts must map each genus"),
+        (
+            "hosts: {}\ncombined_references: {x.gnm1: {note: [a]}}\n",
+            "combined reference x.gnm1 needs a genomes list",
+        ),
+    ],
+)
+def test_an_unusable_config_is_reported(tmp_path, text, reason):
+    path = tmp_path / "divbrowse.yml"
+    if text is not None:
+        path.write_text(text, encoding="utf-8")
+    with pytest.raises(DivbrowseError) as err:
+        load_config(str(path))
+    assert reason in str(err.value)
 
 
 @pytest.mark.parametrize("host", ["divbrowse.example.org", "Glycine=bad host"])
