@@ -213,7 +213,9 @@ annotation, and a `CHROM_PATTERN` built from the genome's `chromosome_prefix`. T
 served from `divbrowse.soybase.org` and Arachis from `divbrowse.peanutbase.org`, and
 `--host GENUS=HOSTNAME` adds or overrides one. Services start one at a time, each once the previous
 one's healthcheck passes, so first-time setups (download and VCF-to-Zarr conversion)
-never run at once and compete for memory.
+never run at once and compete for memory. Every service also gets a `COLLECTIONS` list
+of all the services in the file, which Divbrowse shows as a "Collection:" dropdown
+filtered to the page's own host.
 
 Write the file to the root of a divbrowse checkout: the services build from its
 `Dockerfile`, and the proxy reads its `traefik/` configuration. Service names are the

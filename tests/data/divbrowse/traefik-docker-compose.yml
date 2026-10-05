@@ -17,6 +17,13 @@
 # service, then `docker compose up -d`.
 # Per-host root redirects live in traefik/dynamic/divbrowse.yml.
 #
+# Collections: the COLLECTIONS variable (defined once in the x-divbrowse
+# anchor below and merged into every service via `<<: *divbrowse_env`) lists
+# all hosted instances for the "Collection:" dropdown in the UI. Each service
+# must merge it because a service-level `environment:` replaces the anchor's.
+# The frontend only shows entries whose URL host matches the page's host, so
+# one shared list serves every host.
+#
 # Startup: Divbrowse services start one at a time, each once the one before it
 # is healthy, so first-time setups never run at once. `docker compose up` waits
 # through them; later starts skip setup and are quick.
@@ -34,6 +41,20 @@ x-divbrowse: &divbrowse
     # First-time setup (download, VCF to Zarr) runs within this period.
     start_period: 2h
     start_interval: 30s
+  environment: &divbrowse_env
+    COLLECTIONS: |
+      - name: Wm82.gnm4.div.Song_Hyten_2015
+        url: https://divbrowse.soybase.org/Wm82.gnm4.div.Song_Hyten_2015/
+      - name: Wm82.gnm5.div.Song_Hyten_2015
+        url: https://divbrowse.soybase.org/Wm82.gnm5.div.Song_Hyten_2015/
+      - name: Wm82.gnm6.div.Song_Hyten_2015
+        url: https://divbrowse.soybase.org/Wm82.gnm6.div.Song_Hyten_2015/
+      - name: aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020
+        url: https://divbrowse.peanutbase.org/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020/
+      - name: aradu1_araip1.gnm1.div.Otyama_Wilkey_2019
+        url: https://divbrowse.peanutbase.org/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019/
+      - name: aradu1_araip1.gnm1.div.Clevenger_Korani_2018
+        url: https://divbrowse.peanutbase.org/aradu1_araip1.gnm1.div.Clevenger_Korani_2018/
 
 services:
   proxy:
@@ -46,92 +67,98 @@ services:
       - ./traefik:/etc/traefik:ro
     restart: unless-stopped
 
-  divbrowse-gnm4:
+  divbrowse-wm82.gnm4.div.song_hyten_2015:
     <<: *divbrowse
     environment:
-      - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm4.div.Song_Hyten_2015/glyma.Wm82.gnm4.div.Song_Hyten_2015.vcf.gz
-      - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ/glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz
-      - CHROM_PATTERN=glyma\.Wm82\.gnm4\.Gm[0-9]+
+      <<: *divbrowse_env
+      VCF_URL: https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm4.div.Song_Hyten_2015/glyma.Wm82.gnm4.div.Song_Hyten_2015.vcf.gz
+      GFF3_URL: https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm4.ann1.T8TQ/glyma.Wm82.gnm4.ann1.T8TQ.gene_models_main.gff3.gz
+      CHROM_PATTERN: glyma\.Wm82\.gnm4\.Gm[0-9]+
     labels:
       divbrowse.host: divbrowse.soybase.org
       divbrowse.path: Wm82.gnm4.div.Song_Hyten_2015
     volumes:
-      - ./data/gnm4:/opt/divbrowse
+      - ./data/Wm82.gnm4.div.Song_Hyten_2015:/opt/divbrowse
 
-  divbrowse-gnm5:
+  divbrowse-wm82.gnm5.div.song_hyten_2015:
     <<: *divbrowse
     depends_on:
-      divbrowse-gnm4:
+      divbrowse-wm82.gnm4.div.song_hyten_2015:
         condition: service_healthy
     environment:
-      - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm5.div.Song_Hyten_2015/glyma.Wm82.gnm5.div.Song_Hyten_2015.vcf.gz
-      - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm5.ann1.J7HW/glyma.Wm82.gnm5.ann1.J7HW.gene_models_main.gff3.gz
-      - CHROM_PATTERN=glyma\.Wm82\.gnm5\.Chr[0-9]+
+      <<: *divbrowse_env
+      VCF_URL: https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm5.div.Song_Hyten_2015/glyma.Wm82.gnm5.div.Song_Hyten_2015.vcf.gz
+      GFF3_URL: https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm5.ann1.J7HW/glyma.Wm82.gnm5.ann1.J7HW.gene_models_main.gff3.gz
+      CHROM_PATTERN: glyma\.Wm82\.gnm5\.Chr[0-9]+
     labels:
       divbrowse.host: divbrowse.soybase.org
       divbrowse.path: Wm82.gnm5.div.Song_Hyten_2015
     volumes:
-      - ./data/gnm5:/opt/divbrowse
+      - ./data/Wm82.gnm5.div.Song_Hyten_2015:/opt/divbrowse
 
-  divbrowse-gnm6:
+  divbrowse-wm82.gnm6.div.song_hyten_2015:
     <<: *divbrowse
     depends_on:
-      divbrowse-gnm5:
+      divbrowse-wm82.gnm5.div.song_hyten_2015:
         condition: service_healthy
     environment:
-      - VCF_URL=https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm6.div.Song_Hyten_2015/glyma.Wm82.gnm6.div.Song_Hyten_2015.vcf.gz
-      - GFF3_URL=https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm6.ann1.PKSW/glyma.Wm82.gnm6.ann1.PKSW.gene_models_main.gff3.gz
-      - CHROM_PATTERN=glyma\.Wm82\.gnm6\.Gm[0-9]+
+      <<: *divbrowse_env
+      VCF_URL: https://data.legumeinfo.org/Glycine/max/diversity/Wm82.gnm6.div.Song_Hyten_2015/glyma.Wm82.gnm6.div.Song_Hyten_2015.vcf.gz
+      GFF3_URL: https://data.legumeinfo.org/Glycine/max/annotations/Wm82.gnm6.ann1.PKSW/glyma.Wm82.gnm6.ann1.PKSW.gene_models_main.gff3.gz
+      CHROM_PATTERN: glyma\.Wm82\.gnm6\.Gm[0-9]+
     labels:
       divbrowse.host: divbrowse.soybase.org
       divbrowse.path: Wm82.gnm6.div.Song_Hyten_2015
     volumes:
-      - ./data/gnm6:/opt/divbrowse
+      - ./data/Wm82.gnm6.div.Song_Hyten_2015:/opt/divbrowse
 
   # Peanut (Arachis hypogaea) diversity data are called against a combined
   # reference of the diploid progenitors: A. duranensis V14167 (A subgenome)
   # plus A. ipaensis K30076 (B subgenome), hence the two GFF3 files.
-  divbrowse-arahy-otyama-kulkarni-2020:
+  divbrowse-aradu1_araip1.gnm1.div.otyama_kulkarni_2020:
     <<: *divbrowse
     depends_on:
-      divbrowse-gnm6:
+      divbrowse-wm82.gnm6.div.song_hyten_2015:
         condition: service_healthy
     environment:
-      - VCF_URL=https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020.main.vcf.gz
-      - GFF3_URL=https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
-      - CHROM_PATTERN=^(aradu\.V14167\.gnm1\.Aradu\.A|araip\.K30076\.gnm1\.Araip\.B)[0-9]+$$
+      <<: *divbrowse_env
+      VCF_URL: https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020.main.vcf.gz
+      GFF3_URL: https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
+      CHROM_PATTERN: ^(aradu\.V14167\.gnm1\.Aradu\.A|araip\.K30076\.gnm1\.Araip\.B)[0-9]+$$
     labels:
       divbrowse.host: divbrowse.peanutbase.org
       divbrowse.path: aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020
     volumes:
-      - ./data/arahy-otyama-kulkarni-2020:/opt/divbrowse
+      - ./data/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020:/opt/divbrowse
 
-  divbrowse-arahy-otyama-wilkey-2019:
+  divbrowse-aradu1_araip1.gnm1.div.otyama_wilkey_2019:
     <<: *divbrowse
     depends_on:
-      divbrowse-arahy-otyama-kulkarni-2020:
+      divbrowse-aradu1_araip1.gnm1.div.otyama_kulkarni_2020:
         condition: service_healthy
     environment:
-      - VCF_URL=https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019/arahy.aradu1_araip1.gnm1.div.Otyama_Wilkey_2019.snp_chip.vcf.gz
-      - GFF3_URL=https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
-      - CHROM_PATTERN=^(aradu\.V14167\.gnm1\.Aradu\.A|araip\.K30076\.gnm1\.Araip\.B)[0-9]+$$
+      <<: *divbrowse_env
+      VCF_URL: https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019/arahy.aradu1_araip1.gnm1.div.Otyama_Wilkey_2019.snp_chip.vcf.gz
+      GFF3_URL: https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
+      CHROM_PATTERN: ^(aradu\.V14167\.gnm1\.Aradu\.A|araip\.K30076\.gnm1\.Araip\.B)[0-9]+$$
     labels:
       divbrowse.host: divbrowse.peanutbase.org
       divbrowse.path: aradu1_araip1.gnm1.div.Otyama_Wilkey_2019
     volumes:
-      - ./data/arahy-otyama-wilkey-2019:/opt/divbrowse
+      - ./data/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019:/opt/divbrowse
 
-  divbrowse-arahy-clevenger-korani-2018:
+  divbrowse-aradu1_araip1.gnm1.div.clevenger_korani_2018:
     <<: *divbrowse
     depends_on:
-      divbrowse-arahy-otyama-wilkey-2019:
+      divbrowse-aradu1_araip1.gnm1.div.otyama_wilkey_2019:
         condition: service_healthy
     environment:
-      - VCF_URL=https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Clevenger_Korani_2018/aradu1_araip1.gnm1.div.Clevenger_Korani_2018.snp_chip.vcf.gz
-      - GFF3_URL=https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
-      - CHROM_PATTERN=^(aradu\.V14167\.gnm1\.Aradu\.A|araip\.K30076\.gnm1\.Araip\.B)[0-9]+$$
+      <<: *divbrowse_env
+      VCF_URL: https://data.legumeinfo.org/Arachis/hypogaea/diversity/aradu1_araip1.gnm1.div.Clevenger_Korani_2018/aradu1_araip1.gnm1.div.Clevenger_Korani_2018.snp_chip.vcf.gz
+      GFF3_URL: https://data.legumeinfo.org/Arachis/duranensis/annotations/V14167.gnm1.ann1.cxSM/aradu.V14167.gnm1.ann1.cxSM.gene_models_main.gff3.gz https://data.legumeinfo.org/Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m/araip.K30076.gnm1.ann1.J37m.gene_models_main.gff3.gz
+      CHROM_PATTERN: ^(aradu\.V14167\.gnm1\.Aradu\.A|araip\.K30076\.gnm1\.Araip\.B)[0-9]+$$
     labels:
       divbrowse.host: divbrowse.peanutbase.org
       divbrowse.path: aradu1_araip1.gnm1.div.Clevenger_Korani_2018
     volumes:
-      - ./data/arahy-clevenger-korani-2018:/opt/divbrowse
+      - ./data/aradu1_araip1.gnm1.div.Clevenger_Korani_2018:/opt/divbrowse

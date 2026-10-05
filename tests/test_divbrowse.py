@@ -1,7 +1,7 @@
-"""populate-divbrowse against the Traefik layout drafted for legumeinfo/divbrowse.
+"""populate-divbrowse against legumeinfo/divbrowse's own docker-compose.yml.
 
-The reference in tests/data/divbrowse/ is that draft, with the proxy on 8080 by
-default. The output must equal it except for service names and data directories.
+The reference in tests/data/divbrowse/ is that file as edited by hand for the
+"Collection:" dropdown, and the output must equal it.
 """
 
 import os
@@ -30,29 +30,9 @@ PEANUT = (
     "aradu1_araip1.gnm1.div.Otyama_Wilkey_2019",
     "aradu1_araip1.gnm1.div.Clevenger_Korani_2018",
 )
+
+
 # The reference's hand-picked names, and what they become. Nothing else may differ.
-RENAMES = {
-    "divbrowse-gnm4:": "divbrowse-wm82.gnm4.div.song_hyten_2015:",
-    "divbrowse-gnm5:": "divbrowse-wm82.gnm5.div.song_hyten_2015:",
-    "divbrowse-gnm6:": "divbrowse-wm82.gnm6.div.song_hyten_2015:",
-    "./data/gnm4:": "./data/Wm82.gnm4.div.Song_Hyten_2015:",
-    "./data/gnm5:": "./data/Wm82.gnm5.div.Song_Hyten_2015:",
-    "./data/gnm6:": "./data/Wm82.gnm6.div.Song_Hyten_2015:",
-    "divbrowse-arahy-otyama-kulkarni-2020:": "divbrowse-aradu1_araip1.gnm1.div.otyama_kulkarni_2020:",
-    "divbrowse-arahy-otyama-wilkey-2019:": "divbrowse-aradu1_araip1.gnm1.div.otyama_wilkey_2019:",
-    "divbrowse-arahy-clevenger-korani-2018:": "divbrowse-aradu1_araip1.gnm1.div.clevenger_korani_2018:",
-    "./data/arahy-otyama-kulkarni-2020:": (
-        "./data/aradu1_araip1.gnm1.div.Otyama_Kulkarni_2020:"
-    ),
-    "./data/arahy-otyama-wilkey-2019:": (
-        "./data/aradu1_araip1.gnm1.div.Otyama_Wilkey_2019:"
-    ),
-    "./data/arahy-clevenger-korani-2018:": (
-        "./data/aradu1_araip1.gnm1.div.Clevenger_Korani_2018:"
-    ),
-}
-
-
 def _checksum(*names):
     return "\n".join(f"{MD5}  ./{name}" for name in names) + "\n"
 
@@ -159,15 +139,27 @@ def _run(clone, tmp_path, collections, *options):
     return result, out
 
 
-def test_the_traefik_layout_is_reproduced_with_collection_names(clone, tmp_path):
+def test_the_reference_compose_file_is_reproduced(clone, tmp_path):
     result, out = _run(clone, tmp_path, SOYBEAN + PEANUT)
     assert result.exit_code == 0, result.output
     with open(REFERENCE, encoding="utf-8") as handle:
-        expected = handle.read()
-    for old, new in RENAMES.items():
-        assert expected.count(old) >= 1, old  # a service name recurs in depends_on
-        expected = expected.replace(old, new)
-    assert out.read_text(encoding="utf-8") == expected
+        assert out.read_text(encoding="utf-8") == handle.read()
+
+
+def test_every_service_lists_every_collection(clone, tmp_path):
+    """A service's own environment replaces the template's, so each must merge it."""
+    _, out = _run(clone, tmp_path, SOYBEAN + PEANUT, "--host", "Glycine=dv.example.org")
+    services = yaml.safe_load(out.read_text(encoding="utf-8"))["services"]
+    services.pop("proxy")
+    hosts = {SOYBEAN[0]: "dv.example.org", PEANUT[0]: "divbrowse.peanutbase.org"}
+    expected = [
+        {"name": name, "url": f"https://{hosts[group[0]]}/{name}/"}
+        for group in (SOYBEAN, PEANUT)
+        for name in group
+    ]
+    for service in services.values():
+        assert yaml.safe_load(service["environment"]["COLLECTIONS"]) == expected
+        assert "VCF_URL" in service["environment"]
 
 
 def test_services_start_one_after_another_once_healthy(clone, tmp_path):
@@ -213,7 +205,7 @@ def test_deployment_options_reach_the_file(clone, tmp_path):
         "divbrowse.path": "Wm82.gnm5.div.Song_Hyten_2015",
     }
     assert "ports" not in service  # the proxy is the only way in
-    environment = dict(entry.split("=", 1) for entry in service["environment"])
+    environment = service["environment"]
     assert "BASE_URL" not in environment
     assert environment["VCF_URL"].startswith(
         "https://mirror.example.org/Glycine/max/diversity/"

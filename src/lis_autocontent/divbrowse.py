@@ -30,6 +30,13 @@ HEADER = """# Divbrowse Docker Compose
 # service, then `docker compose up -d`.
 # Per-host root redirects live in traefik/dynamic/divbrowse.yml.
 #
+# Collections: the COLLECTIONS variable (defined once in the x-divbrowse
+# anchor below and merged into every service via `<<: *divbrowse_env`) lists
+# all hosted instances for the "Collection:" dropdown in the UI. Each service
+# must merge it because a service-level `environment:` replaces the anchor's.
+# The frontend only shows entries whose URL host matches the page's host, so
+# one shared list serves every host.
+#
 # Startup: Divbrowse services start one at a time, each once the one before it
 # is healthy, so first-time setups never run at once. `docker compose up` waits
 # through them; later starts skip setup and are quick.
@@ -47,7 +54,9 @@ x-divbrowse: &divbrowse
     # First-time setup (download, VCF to Zarr) runs within this period.
     start_period: 2h
     start_interval: 30s
+"""
 
+PROXY = """
 services:
   proxy:
     image: traefik:v3
@@ -64,14 +73,23 @@ services:
 SERVICE = """  {name}:
     <<: *divbrowse
 {depends_on}    environment:
-      - VCF_URL={vcf_url}
-      - GFF3_URL={gff3_url}
-      - CHROM_PATTERN={chrom_pattern}
+      <<: *divbrowse_env
+      VCF_URL: {vcf_url}
+      GFF3_URL: {gff3_url}
+      CHROM_PATTERN: {chrom_pattern}
     labels:
       divbrowse.host: {host}
       divbrowse.path: {path}
     volumes:
       - ./data/{data_dir}:/opt/divbrowse
+"""
+
+# The "Collection:" dropdown's entries, merged into every service's environment.
+COLLECTIONS = """  environment: &divbrowse_env
+    COLLECTIONS: |
+{entries}"""
+COLLECTION = """      - name: {name}
+        url: https://{host}/{name}/
 """
 
 DEPENDS_ON = """    depends_on:
@@ -320,6 +338,7 @@ def compose_file(index, identifiers, hosts=None):
     seen = set()
     noted = set()
     previous = None
+    entries = []
     for identifier in identifiers:
         if identifier in seen:
             problems.setdefault(identifier, []).append(
@@ -347,6 +366,7 @@ def compose_file(index, identifiers, hosts=None):
             noted.add(reference)
             block = "".join(f"  # {line}\n" for line in note) + block
         blocks.append(block)
+        entries.append(COLLECTION.format(name=identifier, host=environment["host"]))
         previous = service_name(identifier)
     if not identifiers:
         problems[""] = ["no collections were requested"]
@@ -357,4 +377,5 @@ def compose_file(index, identifiers, hosts=None):
                 for identifier, reasons in problems.items()
             )
         )
-    return HEADER + "\n".join(blocks)
+    entries = COLLECTIONS.format(entries="".join(entries))
+    return HEADER + entries + PROXY + "\n".join(blocks)
