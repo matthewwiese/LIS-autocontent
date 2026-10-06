@@ -1,6 +1,8 @@
 """Serialize a DatastoreIndex as one catalog document.
 
-The shape is a published contract: change it only with SCHEMA_VERSION. File entries
+The shape is a published contract. Consumers refuse a schema they don't know, so
+an optional key may be added under the same SCHEMA_VERSION; anything else changes
+it. File entries
 use short keys: ``n`` path, ``i`` index suffixes, ``src`` provenance, ``i_unknown``
 siblings never probed.
 """
@@ -10,6 +12,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
+from . import jbrowse
 from .datastore_files import DatastoreIndex
 
 SCHEMA_VERSION = 1
@@ -18,8 +21,19 @@ SCHEMA_VERSION = 1
 class CatalogBuilder:
     """Build the catalog document from a datastore-metadata checkout."""
 
-    def __init__(self, metadata_dir, logger=None, datastore_url=None, verify=False):
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        metadata_dir,
+        logger=None,
+        datastore_url=None,
+        verify=False,
+        jbrowse_configs=None,
+    ):
         self.logger = logger or logging.getLogger("catalog")
+        # Instance id -> deployed config.json path; none leaves JBrowse out entirely.
+        self.jbrowse_configs = jbrowse_configs or {}
+        self.deployments = []
+        self.placements = {}
         self.index = DatastoreIndex(
             metadata_dir,
             logger=self.logger,
@@ -63,6 +77,8 @@ class CatalogBuilder:
             record["derived_from"] = list(collection.derived_from)
         if collection.inherited:
             record["inherited"] = list(collection.inherited)
+        if collection.path in self.placements:
+            record["jbrowse"] = self.placements[collection.path]
         # NOTE: BUSCO metrics are parsed but deliberately withheld; uncomment to emit.
         # Downstream consumers of `busco`/`counts` carry a matching NOTE.
         # if collection.busco:
@@ -74,7 +90,11 @@ class CatalogBuilder:
     def build(self):
         """Build the whole catalog. Returns the document as a dict."""
         index = self.index.build()
-        return {
+        instances = None
+        if self.jbrowse_configs:
+            self.deployments = jbrowse.read_deployments(index, self.jbrowse_configs)
+            instances, self.placements = jbrowse.catalog_section(self.deployments)
+        document = {
             "schema": SCHEMA_VERSION,
             "built_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "source_commit": index.source_commit(),
@@ -83,10 +103,13 @@ class CatalogBuilder:
             "taxa": index.taxa,
             "pairwise": index.pairwise,
             "gene_symbols": index.gene_symbols,
-            "collections": [
-                self.collection_record(c) for c in index.collections.values()
-            ],
         }
+        if instances is not None:
+            document["jbrowse_instances"] = instances
+        document["collections"] = [
+            self.collection_record(c) for c in index.collections.values()
+        ]
+        return document
 
     def write(self, out_path, indent=None):
         """Build and write the catalog. Returns the document."""

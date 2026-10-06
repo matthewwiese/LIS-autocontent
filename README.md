@@ -122,6 +122,31 @@ Two properties worth preserving if you change it:
   collections (nearly every `qtl` and `gwas` one) are `"unknown"`. Collapsing that
   into "no indexes" would report streamable data as unreadable.
 
+### JBrowse placements
+
+Given LIS's deployed JBrowse 2 configs, the catalog also records where each collection
+appears in them. The instances are listed in
+[`src/lis_autocontent/jbrowse.yml`](src/lis_autocontent/jbrowse.yml); pass each one's
+`config.json`, downloaded beforehand so the build stays offline:
+
+```
+lis-autocontent populate-catalog --from_github ./datastore-metadata \
+    --jbrowse_config all-genera=all-genera.json --jbrowse_config cicer=cicer.json \
+    --jbrowse_report jbrowse-report.md
+```
+
+The catalog gains `jbrowse_instances`, each instance's URL and `status`, and on each
+collection an instance serves, a `jbrowse` list: the instance, its assembly names and,
+for track-bearing collections, each track's `id`, `type`, `file` and `index`. Tracks
+are placed by their data URL, not by predicted names. An instance with no readable
+config is `unavailable`: nothing is known about what it serves, which is not the same
+as serving nothing. Without any `--jbrowse_config`, the catalog is unchanged.
+
+`--jbrowse_report` writes a Markdown summary: tracks on the Data Store in no known
+collection, tracks naming files or indexes their collection doesn't publish, genome
+and annotation collections no instance serves, and how the instance
+`populate-jbrowse2` builds differs from its plan.
+
 ### Building it on GitHub Actions
 
 `.github/workflows/populate-catalog.yml` builds `catalog.json` for the whole store from

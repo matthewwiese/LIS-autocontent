@@ -91,14 +91,18 @@ callers depend on the difference.
 ### Consumers of the index
 
 - `catalog.py` serializes the index to one JSON document and holds no logic of its own.
-  Its shape is versioned: change it only with `SCHEMA_VERSION`.
+  Its shape is versioned. DSCensor and Legumista refuse any schema they don't know,
+  so an optional key may be added under the same `SCHEMA_VERSION`; renaming, removing
+  or changing the meaning of a key bumps it, in step with them.
 - `divbrowse.py` builds one compose service per diversity collection and refuses any
   collection the format can't express. Per-genus hosts and combined references are
   data in `divbrowse.yml`, package data like `filetypes.yml`.
 - `jbrowse.py` plans LIS's JBrowse 2 assemblies and tracks, and renders them as
   `jbrowse` commands. Its naming is the deployed config's, so change it only with a
   full-store comparison of the commands. `jbrowse.yml` lists the JBrowse instances and
-  the one `populate-jekyll`'s resource links open.
+  the one `populate-jekyll`'s resource links open. Given instances' deployed configs,
+  it also maps their assemblies and tracks onto collections by data URL, for the
+  catalog's `jbrowse` placements.
 
 New metadata belongs on `DatastoreIndex` (a field or a pass) and reaches consumers through
 the catalog. Don't re-walk the checkout elsewhere. Change `ProcessCollections` only to keep

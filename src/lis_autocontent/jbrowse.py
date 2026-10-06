@@ -5,6 +5,8 @@ rebuilt config keeps its existing assembly names and tracks.
 """
 
 import functools
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 
@@ -38,8 +40,9 @@ def load_config(path=CONFIG_PATH):
         and all(isinstance(k, str) and isinstance(v, str) for k, v in instances.items())
     ):
         raise JBrowseError(f"{path}: instances must map each id to a URL")
-    if config.get("jekyll_instance") not in instances:
-        raise JBrowseError(f"{path}: jekyll_instance must name one of the instances")
+    for key in ("built_instance", "jekyll_instance"):
+        if config.get(key) not in instances:
+            raise JBrowseError(f"{path}: {key} must name one of the instances")
     return config
 
 
@@ -50,7 +53,7 @@ def jekyll_url():
 
 
 @dataclass
-class JBrowseEntry:
+class JBrowseEntry:  # pylint: disable=too-many-instance-attributes
     """One assembly or track. ``key`` is the name entries are deduplicated on.
 
     ``record`` is the index's file record for ``url``, or None when the URL is built
@@ -114,72 +117,81 @@ def _checksum_files(collection, suffix):
     ]
 
 
-def collection_entries(index, collection):
-    """The JBrowse entries one collection contributes."""
+def _named_entry(index, collection):
+    """The assembly or annotation track a genome or annotation collection names."""
     name = lookup(collection)
     strain, version = name.split(".")[1], name.rsplit(".", maxsplit=1)[-1]
     title = f"{collection.genus.capitalize()} {collection.species} {strain}"
-    base = f"{index.datastore_url}/{collection.path}"
     prefix = (
         f"{gensp(collection.genus, collection.species)}.{collection.collection_key}"
     )
+    base = f"{index.datastore_url}/{collection.path}"
     if collection.collection_type == "genomes":
         filename = f"{prefix}.genome_main.fna.gz"
-        return [
+        return JBrowseEntry(
+            "assembly",
+            name,
+            f"{base}/{filename}",
+            [name],
+            label=f"{title} V{version.replace('gnm', '')} Genomes",
+            record=_record(collection, filename),
+        )
+    filename = f"{prefix}.gene_models_main.gff3.gz"
+    record = _record(collection, filename)
+    return JBrowseEntry(
+        "annotation",
+        name,
+        f"{base}/{filename}",
+        [".".join(name.split(".")[:-1])],
+        label=f"{title} V{version.replace('ann', '')} Annotations",
+        record=record,
+        # The CLI's default ID: the file name without its last extension.
+        track_id=os.path.splitext(filename)[0],
+        index_url=_csi_index(f"{base}/{filename}", record),
+    )
+
+
+def _expression_entries(index, collection):
+    parent = ".".join(lookup(collection).split(".")[:-3])
+    return [
+        JBrowseEntry(
+            "expression",
+            r.relative_path,
+            f"{index.datastore_url}/{collection.path}/{r.relative_path}",
+            [parent],
+            label=r.relative_path.split(".")[-2],
+            category=".".join(r.relative_path.split(".")[1:-2]),
+            record=r,
+        )
+        for r in _checksum_files(collection, "bw")
+    ]
+
+
+def _alignment_entries(index, collection):
+    entries = []
+    for r in _checksum_files(collection, "paf.gz"):
+        parts = r.relative_path.split(".")
+        entries.append(
             JBrowseEntry(
-                "assembly",
-                name,
-                f"{base}/{filename}",
-                [name],
-                label=f"{title} V{version.replace('gnm', '')} Genomes",
-                record=_record(collection, filename),
-            )
-        ]
-    if collection.collection_type == "annotations":
-        filename = f"{prefix}.gene_models_main.gff3.gz"
-        record = _record(collection, filename)
-        return [
-            JBrowseEntry(
-                "annotation",
-                name,
-                f"{base}/{filename}",
-                [".".join(name.split(".")[:-1])],
-                label=f"{title} V{version.replace('ann', '')} Annotations",
-                record=record,
-                # The CLI's default ID: the file name without its last extension.
-                track_id=os.path.splitext(filename)[0],
-                index_url=_csi_index(f"{base}/{filename}", record),
-            )
-        ]
-    if collection.collection_type == "expression":
-        parent = ".".join(name.split(".")[:-3])
-        return [
-            JBrowseEntry(
-                "expression",
+                "alignment",
                 r.relative_path,
-                f"{base}/{r.relative_path}",
-                [parent],
-                label=r.relative_path.split(".")[-2],
-                category=".".join(r.relative_path.split(".")[1:-2]),
+                f"{index.datastore_url}/{collection.path}/{r.relative_path}",
+                [".".join(parts[4:7]), ".".join(parts[:3])],
                 record=r,
             )
-            for r in _checksum_files(collection, "bw")
-        ]
-    if collection.collection_type == "genome_alignments":
-        entries = []
-        for r in _checksum_files(collection, "paf.gz"):
-            parts = r.relative_path.split(".")
-            first, second = ".".join(parts[:3]), ".".join(parts[4:7])
-            entries.append(
-                JBrowseEntry(
-                    "alignment",
-                    r.relative_path,
-                    f"{base}/{r.relative_path}",
-                    [second, first],
-                    record=r,
-                )
-            )
-        return entries
+        )
+    return entries
+
+
+def collection_entries(index, collection):
+    """The JBrowse entries one collection contributes."""
+    ctype = collection.collection_type
+    if ctype in ("genomes", "annotations"):
+        return [_named_entry(index, collection)]
+    if ctype == "expression":
+        return _expression_entries(index, collection)
+    if ctype == "genome_alignments":
+        return _alignment_entries(index, collection)
     return []
 
 
@@ -233,3 +245,288 @@ def command(entry, out_dir):
         f" -a {entry.assemblies[1]}"
         f" --out {out}/ --indexFile {bam_url}.bai {bam_url} --force"
     )
+
+
+# Index siblings a config may name, with the indexType JBrowse records for each.
+INDEX_TYPES = {".tbi": "TBI", ".csi": "CSI", ".bai": "BAI", ".crai": "CRAI"}
+# Siblings that never name an assembly's or track's data file.
+SIBLING_SUFFIXES = (*INDEX_TYPES, ".fai", ".gzi")
+
+
+@dataclass
+class Deployment:  # pylint: disable=too-many-instance-attributes
+    """One instance's deployed config, mapped onto the index's collections.
+
+    ``placements`` maps collection path -> {"assemblies": set, "tracks": list}. The
+    remaining lists name what could not be placed, for the build report.
+    """
+
+    instance: str
+    url: str
+    status: str = "unavailable"
+    detail: str = ""
+    sha256: str = ""
+    placements: dict = None
+    assemblies: dict = None  # assembly name -> collection path
+    tracks: dict = None  # track id -> index type ("" when none)
+    elsewhere: list = None  # ids served from relative or non-Data Store URLs
+    unmatched: list = None  # (id, url) on the Data Store but in no known collection
+    unlisted: list = None  # (id, url) for files their collection doesn't list
+    unpublished: list = None  # (id, url) for index files their collection doesn't list
+
+
+def _uris(node):
+    """Every ``uri`` value in a JBrowse adapter, in document order."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "uri" and isinstance(value, str):
+                yield value
+            else:
+                yield from _uris(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _uris(item)
+
+
+def locate(index, url):
+    """(collection, relative path) for a Data Store URL, or (None, None)."""
+    prefix = f"{index.datastore_url}/"
+    parts = url[len(prefix) :].split("/") if url.startswith(prefix) else []
+    if len(parts) < 5:
+        return None, None
+    return index.collections.get("/".join(parts[:4])), "/".join(parts[4:])
+
+
+def _listed(collection, relative_path):
+    """False only when the collection's CHECKSUM is known and lacks the file."""
+    return collection.index_status != "known" or any(
+        r.relative_path == relative_path for r in collection.files
+    )
+
+
+def _place(deployment, index, item_id, adapter):
+    """The collection path an adapter's data file lives in, noting what doesn't fit."""
+    uris = list(_uris(adapter))
+    data = next((u for u in uris if not u.endswith(SIBLING_SUFFIXES)), None)
+    collection, relative = locate(index, data) if data else (None, None)
+    if relative is None:
+        deployment.elsewhere.append(item_id)
+        return None, None
+    if collection is None:
+        deployment.unmatched.append((item_id, data))
+        return None, None
+    if not _listed(collection, relative):
+        deployment.unlisted.append((item_id, data))
+    index_url = next((u for u in uris if u.endswith(tuple(INDEX_TYPES))), None)
+    if index_url:
+        index_collection, index_relative = locate(index, index_url)
+        if index_collection is not None and not _listed(
+            index_collection, index_relative
+        ):
+            deployment.unpublished.append((item_id, index_url))
+    return collection.path, relative
+
+
+def _placement(deployment, path):
+    return deployment.placements.setdefault(path, {"assemblies": set(), "tracks": []})
+
+
+def _add_assembly(deployment, index, assembly):
+    name = assembly.get("name", "")
+    path, _ = _place(deployment, index, name, assembly.get("sequence", {}))
+    if path:
+        deployment.assemblies[name] = path
+        _placement(deployment, path)["assemblies"].add(name)
+
+
+def _add_track(deployment, index, track):
+    track_id, adapter = track.get("trackId", ""), track.get("adapter", {})
+    index_spec = adapter.get("index", {}) if isinstance(adapter, dict) else {}
+    index_url = next(iter(_uris(index_spec)), "")
+    index_type = index_spec.get("indexType") or next(
+        (t for s, t in INDEX_TYPES.items() if index_url.endswith(s)), ""
+    )
+    deployment.tracks[track_id] = index_type
+    path, relative = _place(deployment, index, track_id, adapter)
+    if not path:
+        return
+    placement = _placement(deployment, path)
+    placement["assemblies"].update(track.get("assemblyNames") or [])
+    entry = {"id": track_id, "type": track.get("type", ""), "file": relative}
+    if index_type:
+        entry["index"] = index_type
+    placement["tracks"].append(entry)
+
+
+def read_deployment(index, instance, url, config_path):
+    """Read one instance's config.json; an unreadable one leaves it unavailable."""
+    deployment = Deployment(instance, url)
+    if not config_path:
+        deployment.detail = "no config supplied"
+        return deployment
+    try:
+        with open(config_path, "rb") as handle:
+            raw = handle.read()
+        config = json.loads(raw)
+        assemblies, tracks = config["assemblies"], config["tracks"]
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        deployment.detail = f"unreadable config: {err}"
+        return deployment
+    deployment.status, deployment.sha256 = "ok", hashlib.sha256(raw).hexdigest()
+    deployment.placements, deployment.assemblies, deployment.tracks = {}, {}, {}
+    deployment.elsewhere, deployment.unmatched = [], []
+    deployment.unlisted, deployment.unpublished = [], []
+    for assembly in assemblies:
+        _add_assembly(deployment, index, assembly)
+    for track in tracks:
+        _add_track(deployment, index, track)
+    return deployment
+
+
+def read_deployments(index, config_paths):
+    """A Deployment for every instance in jbrowse.yml; config_paths maps id -> path."""
+    instances = load_config()["instances"]
+    unknown = sorted(set(config_paths) - set(instances))
+    if unknown:
+        raise JBrowseError(f"not instances in jbrowse.yml: {', '.join(unknown)}")
+    return [
+        read_deployment(index, instance, url, config_paths.get(instance))
+        for instance, url in instances.items()
+    ]
+
+
+def catalog_section(deployments):
+    """(jbrowse_instances, {collection path: placements}) for the catalog."""
+    instances, placements = {}, {}
+    for deployment in deployments:
+        record = {"url": f"{deployment.url}/", "status": deployment.status}
+        if deployment.status == "ok":
+            record["config_sha256"] = deployment.sha256
+        else:
+            record["detail"] = deployment.detail
+        instances[deployment.instance] = record
+        for path, placed in sorted((deployment.placements or {}).items()):
+            entry = {
+                "instance": deployment.instance,
+                "assemblies": sorted(placed["assemblies"]),
+            }
+            if placed["tracks"]:
+                entry["tracks"] = sorted(placed["tracks"], key=lambda t: t["id"])
+            placements.setdefault(path, []).append(entry)
+    return instances, placements
+
+
+def planned_track_ids(entry):
+    """The track IDs an entry's commands create, by the jbrowse CLI's rules."""
+    name = os.path.basename(entry.url)
+    if entry.kind == "annotation":
+        return [entry.track_id]
+    if entry.kind == "expression":
+        return [os.path.splitext(name)[0]]
+    if entry.kind == "alignment":
+        return [os.path.splitext(name)[0], name.replace("paf.gz", "bam")]
+    return []
+
+
+def _items(rows):
+    return [f"- `{item_id}`: {url}" for item_id, url in rows]
+
+
+def _plan_drift(deployment, entries):
+    """Report lines comparing the plan with the instance populate-jbrowse2 builds."""
+    planned_assemblies = {e.key for e in entries if e.kind == "assembly"}
+    planned_tracks = {
+        track_id: ("CSI" if e.index_url else "TBI") if e.kind == "annotation" else ""
+        for e in entries
+        for track_id in planned_track_ids(e)
+    }
+    rows = [
+        (
+            "Assemblies planned, not deployed",
+            planned_assemblies - set(deployment.assemblies),
+        ),
+        (
+            "Assemblies deployed, not planned",
+            set(deployment.assemblies) - planned_assemblies,
+        ),
+        ("Tracks planned, not deployed", set(planned_tracks) - set(deployment.tracks)),
+        ("Tracks deployed, not planned", set(deployment.tracks) - set(planned_tracks)),
+        (
+            "Tracks whose deployed index type differs from the plan's",
+            {
+                t
+                for t, kind in planned_tracks.items()
+                if kind and deployment.tracks.get(t, kind) != kind
+            },
+        ),
+    ]
+    lines = [f"### Plan vs deployed: {deployment.instance}", ""]
+    for label, names in rows:
+        lines.append(f"- {label}: {len(names)}")
+        lines.extend(f"  - `{name}`" for name in sorted(names))
+    return lines
+
+
+def _instance_table(deployments):
+    lines = [
+        "## JBrowse instances",
+        "",
+        "| Instance | Status | Assemblies | Tracks placed | Elsewhere "
+        "| Unknown collection | File unlisted | Index unpublished |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for d in deployments:
+        if d.status != "ok":
+            lines.append(f"| {d.instance} | {d.status}: {d.detail} | | | | | | |")
+            continue
+        placed = sum(len(p["tracks"]) for p in d.placements.values())
+        lines.append(
+            f"| {d.instance} | ok | {len(d.assemblies)} | {placed} of {len(d.tracks)} "
+            f"| {len(d.elsewhere)} | {len(d.unmatched)} | {len(d.unlisted)} "
+            f"| {len(d.unpublished)} |"
+        )
+    return lines
+
+
+def _problem_lines(deployment):
+    lines = []
+    for label, rows in (
+        ("on the Data Store, in no known collection", deployment.unmatched),
+        ("naming a file its collection doesn't list", deployment.unlisted),
+        ("naming an index file its collection doesn't publish", deployment.unpublished),
+    ):
+        if rows:
+            lines += [
+                "",
+                f"### {deployment.instance}: tracks {label}",
+                "",
+                *_items(rows),
+            ]
+    return lines
+
+
+def _unserved_lines(index, deployments, ok):
+    served = {path for d in ok for path in d.placements}
+    unserved = sorted(
+        c.path
+        for c in index.collections.values()
+        if c.collection_type in ("genomes", "annotations") and c.path not in served
+    )
+    caveat = "" if len(ok) == len(deployments) else " (some instances unavailable)"
+    lines = ["", f"### Genome and annotation collections no instance serves{caveat}"]
+    return lines + (
+        ["", *(f"- {path}" for path in unserved)] if unserved else ["", "None."]
+    )
+
+
+def report(index, deployments, entries, built_instance):
+    """A Markdown summary of what each instance serves and where it drifts."""
+    ok = [d for d in deployments if d.status == "ok"]
+    lines = _instance_table(deployments)
+    for deployment in ok:
+        lines += _problem_lines(deployment)
+    lines += _unserved_lines(index, deployments, ok)
+    built = next((d for d in ok if d.instance == built_instance), None)
+    if built:
+        lines += ["", *_plan_drift(built, entries)]
+    return "\n".join(lines) + "\n"

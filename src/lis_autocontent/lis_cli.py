@@ -15,15 +15,19 @@ from .jbrowse import JBrowseError, jekyll_url
 from .process_collections import ProcessCollections
 
 
-def parse_hosts(_ctx, _param, values):
-    """--host GENUS=HOSTNAME values as {genus: hostname}."""
-    hosts = {}
-    for value in values:
-        genus, sep, host = value.partition("=")
-        if not (sep and genus and host):
-            raise click.BadParameter(f"{value!r} is not GENUS=HOSTNAME")
-        hosts[genus] = host
-    return hosts
+def parse_pairs(form):
+    """A click callback turning repeated KEY=VALUE options into a dict."""
+
+    def parse(_ctx, _param, values):
+        pairs = {}
+        for value in values:
+            key, sep, item = value.partition("=")
+            if not (sep and key and item):
+                raise click.BadParameter(f"{value!r} is not {form}")
+            pairs[key] = item
+        return pairs
+
+    return parse
 
 
 def setup_logging(log_file, log_level, process):
@@ -276,6 +280,23 @@ def populate_blast(taxa_list, blast_out, from_github, cmds_only, log_file, log_l
     'predicted'. Collections that publish a CHECKSUM are unaffected either way.""",
 )
 @click.option(
+    "--jbrowse_config",
+    "jbrowse_configs",
+    multiple=True,
+    metavar="INSTANCE=PATH",
+    callback=parse_pairs("INSTANCE=PATH"),
+    help="""A JBrowse instance's deployed config.json, by its id in jbrowse.yml.
+    Repeatable. With any given, the catalog records where each collection appears in
+    LIS's JBrowse instances; an instance without one is marked unavailable.""",
+)
+@click.option(
+    "--jbrowse_report",
+    default=None,
+    help="""Where to write a Markdown summary of the JBrowse instances: what each
+    serves, the tracks that drift from the Data Store, and the plan vs the instance
+    populate-jbrowse2 builds. Needs --jbrowse_config.""",
+)
+@click.option(
     "--log_file",
     default="./populate-catalog.log",
     help="""Log file to output messages. (default: ./populate-catalog.log)""",
@@ -285,8 +306,16 @@ def populate_blast(taxa_list, blast_out, from_github, cmds_only, log_file, log_l
     default="INFO",
     help="""Log Level to output messages. (default: INFO)""",
 )
-def populate_catalog(
-    from_github, catalog_out, datastore_url, indent, verify, log_file, log_level
+def populate_catalog(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    from_github,
+    catalog_out,
+    datastore_url,
+    indent,
+    verify,
+    jbrowse_configs,
+    jbrowse_report,
+    log_file,
+    log_level,
 ):
     """CLI entry for populate-catalog
 
@@ -296,7 +325,11 @@ def populate_catalog(
     """
     logger = setup_logging(log_file, log_level, "populate-catalog")
     builder = CatalogBuilder(
-        from_github, logger=logger, datastore_url=datastore_url, verify=verify
+        from_github,
+        logger=logger,
+        datastore_url=datastore_url,
+        verify=verify,
+        jbrowse_configs=jbrowse_configs,
     )
     logger.info(
         "Building catalog from %s (%s)...",
@@ -307,7 +340,21 @@ def populate_catalog(
             else "offline; predicted files unverified"
         ),
     )
-    builder.write(catalog_out, indent=indent or None)
+    try:
+        builder.write(catalog_out, indent=indent or None)
+    except JBrowseError as err:
+        raise click.ClickException(str(err)) from err
+    if jbrowse_report and builder.deployments:
+        index = builder.index
+        text = jbrowse.report(
+            index,
+            builder.deployments,
+            jbrowse.plan(index, jbrowse.genera(index)),
+            jbrowse.load_config()["built_instance"],
+        )
+        with open(jbrowse_report, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        logger.info("wrote %s", jbrowse_report)
 
 
 @click.command()
@@ -341,7 +388,7 @@ def populate_catalog(
     "hosts",
     multiple=True,
     metavar="GENUS=HOSTNAME",
-    callback=parse_hosts,
+    callback=parse_pairs("GENUS=HOSTNAME"),
     help="""Public hostname for a genus's services, served at http://<host>/<collection>/.
     Repeatable; adds to or overrides the defaults in divbrowse.yml.""",
 )
