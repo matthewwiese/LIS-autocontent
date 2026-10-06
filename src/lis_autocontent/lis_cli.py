@@ -9,6 +9,7 @@ import click
 from .catalog import CatalogBuilder
 from .datastore_files import DatastoreIndex
 from .divbrowse import DivbrowseError, compose_file, load_config
+from .jbrowse import JBrowseError, jekyll_url
 from .process_collections import ProcessCollections
 
 
@@ -50,6 +51,12 @@ def setup_logging(log_file, log_level, process):
     "--collections_out", default="../_data/taxa/", help="""Output for collections."""
 )
 @click.option(
+    "--jbrowse_url",
+    default=None,
+    help="""Base URL of the JBrowse 2 instance the resource links open.
+    (Default: jekyll_instance in jbrowse.yml)""",
+)
+@click.option(
     "--from_github",
     default="./datastore-metadata",
     help="""Path to datastore-metadata github directory. (Default: ./datastore-metadata).""",
@@ -64,11 +71,19 @@ def setup_logging(log_file, log_level, process):
     default="INFO",
     help="""Log Level to output messages. (default: INFO)""",
 )
-def populate_jekyll(taxa_list, collections_out, from_github, log_file, log_level):
+def populate_jekyll(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    taxa_list, collections_out, jbrowse_url, from_github, log_file, log_level
+):
     """CLI entry for populate-jekyll"""
     logger = setup_logging(log_file, log_level, "populate-jekyll")
+    try:
+        jbrowse_url = jbrowse_url or jekyll_url()
+    except JBrowseError as err:
+        raise click.ClickException(str(err)) from err
     logger.info("Processing Collections...")
-    parser = ProcessCollections(logger, out_dir=collections_out)  # initialize class
+    parser = ProcessCollections(
+        logger, jbrowse_url=jbrowse_url, out_dir=collections_out
+    )
     logger.info("Outputting Collections...")
     parser.parse_collections(from_github, taxa_list)
 

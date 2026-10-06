@@ -1,0 +1,8 @@
+# JBrowse 2 configuration for lis-autocontent.
+
+# LIS's JBrowse 2 instances, by id: each one's base URL, without a trailing slash.
+instances:
+  all-genera: https://all-genera.lis.ncgr.org/tools/jbrowse2
+
+# The instance populate-jekyll's resource links open; --jbrowse_url overrides it.
+jekyll_instance: all-genera

@@ -46,6 +46,13 @@ Commands:
   populate-jekyll    CLI entry for populate-jekyll
 ```
 
+## JBrowse 2
+
+`populate-jekyll` adds JBrowse links to each strain's resources in the Jekyll site's
+`species_resources.yml`, opening the instance `jekyll_instance` names in
+[`src/lis_autocontent/jbrowse.yml`](src/lis_autocontent/jbrowse.yml); `--jbrowse_url`
+overrides it.
+
 ## Building the catalog
 
 `populate-catalog` describes the **whole** datastore in one JSON document, built
