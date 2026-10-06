@@ -64,6 +64,8 @@ class JBrowseEntry:
     label: str = ""
     category: str = ""
     record: object = None
+    track_id: str = ""
+    index_url: str = ""
 
 
 def gensp(genus, species):
@@ -97,6 +99,13 @@ def _record(collection, filename):
     return next((r for r in collection.files if r.relative_path == filename), None)
 
 
+def _csi_index(url, record):
+    """``url``'s CSI index URL when the collection publishes CSI only, else ""."""
+    if record and ".csi" in record.indexes and ".tbi" not in record.indexes:
+        return f"{url}.csi"
+    return ""
+
+
 def _checksum_files(collection, suffix):
     return [
         r
@@ -128,6 +137,7 @@ def collection_entries(index, collection):
         ]
     if collection.collection_type == "annotations":
         filename = f"{prefix}.gene_models_main.gff3.gz"
+        record = _record(collection, filename)
         return [
             JBrowseEntry(
                 "annotation",
@@ -135,7 +145,10 @@ def collection_entries(index, collection):
                 f"{base}/{filename}",
                 [".".join(name.split(".")[:-1])],
                 label=f"{title} V{version.replace('ann', '')} Annotations",
-                record=_record(collection, filename),
+                record=record,
+                # The CLI's default ID: the file name without its last extension.
+                track_id=os.path.splitext(filename)[0],
+                index_url=_csi_index(f"{base}/{filename}", record),
             )
         ]
     if collection.collection_type == "expression":
@@ -200,9 +213,10 @@ def command(entry, out_dir):
             f' --displayName "{entry.label}" {entry.url}'
         )
     if entry.kind == "annotation":
+        index = f" --indexFile {entry.index_url}" if entry.index_url else ""
         return (
             f"jbrowse add-track -a {entry.assemblies[0]} --out {out}/ --force"
-            f' -n "{entry.label}" {entry.url}'
+            f' -n "{entry.label}" --trackId {entry.track_id}{index} {entry.url}'
         )
     if entry.kind == "expression":
         return (
