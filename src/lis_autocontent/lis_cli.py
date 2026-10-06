@@ -4,14 +4,12 @@
 
 import os
 import subprocess
-import sys
 import logging
 import click
 from .catalog import CatalogBuilder
 from .datastore_files import DatastoreIndex
 from .divbrowse import DivbrowseError, compose_file, load_config
 from . import jbrowse
-from .jbrowse import JBrowseError, jekyll_url
 from .process_collections import ProcessCollections
 
 
@@ -59,8 +57,8 @@ def setup_logging(log_file, log_level, process):
 @click.option(
     "--jbrowse_url",
     default=None,
-    help="""Base URL of the JBrowse 2 instance the resource links open.
-    (Default: jekyll_instance in jbrowse.yml)""",
+    help=f"""Base URL of the JBrowse 2 instance the resource links open.
+    (Default: {jbrowse.INSTANCE_URL})""",
 )
 @click.option(
     "--from_github",
@@ -82,10 +80,7 @@ def populate_jekyll(  # pylint: disable=too-many-arguments,too-many-positional-a
 ):
     """CLI entry for populate-jekyll"""
     logger = setup_logging(log_file, log_level, "populate-jekyll")
-    try:
-        jbrowse_url = jbrowse_url or jekyll_url()
-    except JBrowseError as err:
-        raise click.ClickException(str(err)) from err
+    jbrowse_url = jbrowse_url or jbrowse.INSTANCE_URL
     logger.info("Processing Collections...")
     parser = ProcessCollections(
         logger, jbrowse_url=jbrowse_url, out_dir=collections_out
@@ -281,13 +276,9 @@ def populate_blast(taxa_list, blast_out, from_github, cmds_only, log_file, log_l
 )
 @click.option(
     "--jbrowse_config",
-    "jbrowse_configs",
-    multiple=True,
-    metavar="INSTANCE=PATH",
-    callback=parse_pairs("INSTANCE=PATH"),
-    help="""A JBrowse instance's deployed config.json, by its id in jbrowse.yml.
-    Repeatable. With any given, the catalog records where each collection appears in
-    LIS's JBrowse instances; an instance without one is marked unavailable.""",
+    default=None,
+    help="""all-genera's deployed JBrowse config.json. Given, the catalog records where
+    each collection appears on all-genera; unreadable, all-genera is unavailable.""",
 )
 @click.option(
     "--jbrowse_report",
@@ -312,7 +303,7 @@ def populate_catalog(  # pylint: disable=too-many-arguments,too-many-positional-
     datastore_url,
     indent,
     verify,
-    jbrowse_configs,
+    jbrowse_config,
     jbrowse_report,
     log_file,
     log_level,
@@ -329,7 +320,7 @@ def populate_catalog(  # pylint: disable=too-many-arguments,too-many-positional-
         logger=logger,
         datastore_url=datastore_url,
         verify=verify,
-        jbrowse_configs=jbrowse_configs,
+        jbrowse_config=jbrowse_config,
     )
     logger.info(
         "Building catalog from %s (%s)...",
@@ -340,17 +331,13 @@ def populate_catalog(  # pylint: disable=too-many-arguments,too-many-positional-
             else "offline; predicted files unverified"
         ),
     )
-    try:
-        builder.write(catalog_out, indent=indent or None)
-    except JBrowseError as err:
-        raise click.ClickException(str(err)) from err
+    builder.write(catalog_out, indent=indent or None)
     if jbrowse_report and builder.deployments:
         index = builder.index
         text = jbrowse.report(
             index,
             builder.deployments,
             jbrowse.plan(index, jbrowse.genera(index)),
-            jbrowse.load_config()["built_instance"],
         )
         with open(jbrowse_report, "w", encoding="utf-8") as handle:
             handle.write(text)

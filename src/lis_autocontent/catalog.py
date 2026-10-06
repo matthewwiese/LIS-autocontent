@@ -27,11 +27,11 @@ class CatalogBuilder:
         logger=None,
         datastore_url=None,
         verify=False,
-        jbrowse_configs=None,
+        jbrowse_config=None,
     ):
         self.logger = logger or logging.getLogger("catalog")
-        # Instance id -> deployed config.json path; none leaves JBrowse out entirely.
-        self.jbrowse_configs = jbrowse_configs or {}
+        # all-genera's deployed config.json; without it JBrowse is left out entirely.
+        self.jbrowse_config = jbrowse_config
         self.deployments = []
         self.placements = {}
         self.index = DatastoreIndex(
@@ -91,8 +91,12 @@ class CatalogBuilder:
         """Build the whole catalog. Returns the document as a dict."""
         index = self.index.build()
         instances = None
-        if self.jbrowse_configs:
-            self.deployments = jbrowse.read_deployments(index, self.jbrowse_configs)
+        if self.jbrowse_config:
+            self.deployments = [
+                jbrowse.read_deployment(
+                    index, jbrowse.INSTANCE, jbrowse.INSTANCE_URL, self.jbrowse_config
+                )
+            ]
             instances, self.placements = jbrowse.catalog_section(self.deployments)
         document = {
             "schema": SCHEMA_VERSION,

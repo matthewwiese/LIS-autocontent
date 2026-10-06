@@ -54,7 +54,7 @@ where = ["src"]
 
 # Non-Python files the package reads at runtime.
 [tool.setuptools.package-data]
-lis_autocontent = ["filetypes.yml", "divbrowse.yml", "jbrowse.yml"]
+lis_autocontent = ["filetypes.yml", "divbrowse.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

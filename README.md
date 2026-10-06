@@ -51,9 +51,8 @@ Commands:
 `populate-jbrowse2` prints (`--cmds_only`) or runs the `jbrowse` commands that build
 LIS's JBrowse 2 config, planned offline from a `datastore-metadata` checkout.
 `populate-jekyll` adds JBrowse links to each strain's resources in the Jekyll site's
-`species_resources.yml`, opening the instance `jekyll_instance` names in
-[`src/lis_autocontent/jbrowse.yml`](src/lis_autocontent/jbrowse.yml); `--jbrowse_url`
-overrides it.
+`species_resources.yml`, opening all-genera
+(`https://all-genera.lis.ncgr.org/tools/jbrowse2`); `--jbrowse_url` overrides it.
 
 ## Building the catalog
 
@@ -124,28 +123,25 @@ Two properties worth preserving if you change it:
 
 ### JBrowse placements
 
-Given LIS's deployed JBrowse 2 configs, the catalog also records where each collection
-appears in them. The instances are listed in
-[`src/lis_autocontent/jbrowse.yml`](src/lis_autocontent/jbrowse.yml); pass each one's
-`config.json`, downloaded beforehand so the build stays offline:
+Given all-genera's deployed JBrowse 2 config, the catalog also records where each
+collection appears on it. Download `config.json` beforehand so the build stays offline:
 
 ```
 lis-autocontent populate-catalog --from_github ./datastore-metadata \
-    --jbrowse_config all-genera=all-genera.json --jbrowse_config cicer=cicer.json \
-    --jbrowse_report jbrowse-report.md
+    --jbrowse_config all-genera.json --jbrowse_report jbrowse-report.md
 ```
 
-The catalog gains `jbrowse_instances`, each instance's URL and `status`, and on each
-collection an instance serves, a `jbrowse` list: the instance, its assembly names and,
+The catalog gains `jbrowse_instances`, all-genera's URL and `status`, and on each
+collection all-genera serves, a `jbrowse` list: the instance, its assembly names and,
 for track-bearing collections, each track's `id`, `type`, `file` and `index`. Tracks
-are placed by their data URL, not by predicted names. An instance with no readable
-config is `unavailable`: nothing is known about what it serves, which is not the same
-as serving nothing. Without any `--jbrowse_config`, the catalog is unchanged.
+are placed by their data URL, not by predicted names. With an unreadable config,
+all-genera is `unavailable`: nothing is known about what it serves, which is not the
+same as serving nothing. Without `--jbrowse_config`, the catalog is unchanged.
 
 `--jbrowse_report` writes a Markdown summary: tracks on the Data Store in no known
 collection, tracks naming files or indexes their collection doesn't publish, genome
-and annotation collections no instance serves, and how the instance
-`populate-jbrowse2` builds differs from its plan.
+and annotation collections all-genera doesn't serve, and how all-genera differs from
+the plan `populate-jbrowse2` builds.
 
 ### Building it on GitHub Actions
 

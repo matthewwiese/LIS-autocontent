@@ -96,17 +96,11 @@ def _config(path):
 def test_placements_come_from_the_deployed_config(tmp_path, write):
     root = str(tmp_path / "datastore-metadata")
     _tree(write, root, (".csi",))
-    builder = CatalogBuilder(
-        root, jbrowse_configs={"all-genera": _config(tmp_path / "config.json")}
-    )
+    builder = CatalogBuilder(root, jbrowse_config=_config(tmp_path / "config.json"))
     document = builder.build()
-    instances = document["jbrowse_instances"]
-    assert instances["all-genera"]["status"] == "ok"
-    assert instances["cicer"] == {
-        "url": "https://cicer.legumeinfo.org/tools/jbrowse2/",
-        "status": "unavailable",
-        "detail": "no config supplied",
-    }
+    (instance,) = document["jbrowse_instances"].items()
+    assert instance[0] == "all-genera" and instance[1]["status"] == "ok"
+    assert instance[1]["url"] == "https://all-genera.lis.ncgr.org/tools/jbrowse2/"
     records = {c["id"]: c for c in document["collections"]}
     assert records[GENOME]["jbrowse"] == [
         {"instance": "all-genera", "assemblies": ["pissa.Cameor.gnm2"]}
@@ -133,7 +127,7 @@ def test_an_unreadable_config_leaves_its_instance_unavailable(tmp_path, write):
     _tree(write, root, (".csi",))
     broken = tmp_path / "config.json"
     broken.write_text("{not json", encoding="utf-8")
-    document = CatalogBuilder(root, jbrowse_configs={"all-genera": str(broken)}).build()
+    document = CatalogBuilder(root, jbrowse_config=str(broken)).build()
     assert document["jbrowse_instances"]["all-genera"]["status"] == "unavailable"
     assert not any("jbrowse" in c for c in document["collections"])
 
@@ -141,16 +135,13 @@ def test_an_unreadable_config_leaves_its_instance_unavailable(tmp_path, write):
 def test_the_report_names_every_drift(tmp_path, write):
     root = str(tmp_path / "datastore-metadata")
     _tree(write, root, (".csi",))
-    builder = CatalogBuilder(
-        root, jbrowse_configs={"all-genera": _config(tmp_path / "config.json")}
-    )
+    builder = CatalogBuilder(root, jbrowse_config=_config(tmp_path / "config.json"))
     builder.build()
     index = builder.index
     text = jbrowse.report(
         index,
         builder.deployments,
         jbrowse.plan(index, ["Pisum"]),
-        "all-genera",
     )
     assert "| all-genera | ok | 1 | 1 of 3 | 1 | 1 | 0 | 1 |" in text
     assert f"{DATA}/annotations/{ANNOTATION}/{GFF3}.tbi" in text  # CSI-only collection

@@ -4,7 +4,6 @@ The plan keeps every name, URL and grouping populate-jbrowse2 has always produce
 rebuilt config keeps its existing assembly names and tracks.
 """
 
-import functools
 import hashlib
 import json
 import os
@@ -14,42 +13,13 @@ import yaml
 
 from .datastore_files import SRC_CHECKSUM
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jbrowse.yml")
+# The JBrowse 2 instance populate-jbrowse2 builds, Jekyll links open and the catalog
+# describes.
+INSTANCE = "all-genera"
+INSTANCE_URL = "https://all-genera.lis.ncgr.org/tools/jbrowse2"
 
 # Collection types in command order: assemblies before the tracks placed on them.
 PLAN_TYPES = ("genomes", "annotations", "expression", "genome_alignments")
-
-
-class JBrowseError(Exception):
-    """Raised when jbrowse.yml can't be used."""
-
-
-@functools.lru_cache(maxsize=None)
-def load_config(path=CONFIG_PATH):
-    """jbrowse.yml's instances and Jekyll link instance; JBrowseError if unusable."""
-    try:
-        with open(path, encoding="utf-8") as handle:
-            config = yaml.safe_load(handle)
-    except (OSError, yaml.YAMLError) as err:
-        raise JBrowseError(f"cannot read {path}: {err}") from err
-    config = config if isinstance(config, dict) else {}
-    instances = config.get("instances")
-    if not (
-        isinstance(instances, dict)
-        and instances
-        and all(isinstance(k, str) and isinstance(v, str) for k, v in instances.items())
-    ):
-        raise JBrowseError(f"{path}: instances must map each id to a URL")
-    for key in ("built_instance", "jekyll_instance"):
-        if config.get(key) not in instances:
-            raise JBrowseError(f"{path}: {key} must name one of the instances")
-    return config
-
-
-def jekyll_url():
-    """Base URL of the instance the Jekyll site's resource links open."""
-    config = load_config()
-    return config["instances"][config["jekyll_instance"]]
 
 
 @dataclass
@@ -383,18 +353,6 @@ def read_deployment(index, instance, url, config_path):
     return deployment
 
 
-def read_deployments(index, config_paths):
-    """A Deployment for every instance in jbrowse.yml; config_paths maps id -> path."""
-    instances = load_config()["instances"]
-    unknown = sorted(set(config_paths) - set(instances))
-    if unknown:
-        raise JBrowseError(f"not instances in jbrowse.yml: {', '.join(unknown)}")
-    return [
-        read_deployment(index, instance, url, config_paths.get(instance))
-        for instance, url in instances.items()
-    ]
-
-
 def catalog_section(deployments):
     """(jbrowse_instances, {collection path: placements}) for the catalog."""
     instances, placements = {}, {}
@@ -519,14 +477,14 @@ def _unserved_lines(index, deployments, ok):
     )
 
 
-def report(index, deployments, entries, built_instance):
+def report(index, deployments, entries):
     """A Markdown summary of what each instance serves and where it drifts."""
     ok = [d for d in deployments if d.status == "ok"]
     lines = _instance_table(deployments)
     for deployment in ok:
         lines += _problem_lines(deployment)
     lines += _unserved_lines(index, deployments, ok)
-    built = next((d for d in ok if d.instance == built_instance), None)
+    built = next((d for d in ok if d.instance == INSTANCE), None)
     if built:
         lines += ["", *_plan_drift(built, entries)]
     return "\n".join(lines) + "\n"

@@ -99,10 +99,9 @@ callers depend on the difference.
   data in `divbrowse.yml`, package data like `filetypes.yml`.
 - `jbrowse.py` plans LIS's JBrowse 2 assemblies and tracks, and renders them as
   `jbrowse` commands. Its naming is the deployed config's, so change it only with a
-  full-store comparison of the commands. `jbrowse.yml` lists the JBrowse instances and
-  the one `populate-jekyll`'s resource links open. Given instances' deployed configs,
-  it also maps their assemblies and tracks onto collections by data URL, for the
-  catalog's `jbrowse` placements.
+  full-store comparison of the commands. Given all-genera's deployed config, it also
+  maps its assemblies and tracks onto collections by data URL, for the catalog's
+  `jbrowse` placements.
 
 New metadata belongs on `DatastoreIndex` (a field or a pass) and reaches consumers through
 the catalog. Don't re-walk the checkout elsewhere. Change `ProcessCollections` only to keep
