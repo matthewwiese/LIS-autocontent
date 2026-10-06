@@ -3,12 +3,14 @@
 #!/usr/bin/env python3
 
 import os
+import subprocess
 import sys
 import logging
 import click
 from .catalog import CatalogBuilder
 from .datastore_files import DatastoreIndex
 from .divbrowse import DivbrowseError, compose_file, load_config
+from . import jbrowse
 from .jbrowse import JBrowseError, jekyll_url
 from .process_collections import ProcessCollections
 
@@ -125,7 +127,11 @@ def populate_dscensor(taxa_list, nodes_out, from_github, log_file, log_level):
 
 
 @click.command()
-@click.option("--jbrowse_url", help="""URL hosting JBrowse2""")
+@click.option(
+    "--jbrowse_url",
+    help="""Unused: populate-jekyll writes the JBrowse resource links. Accepted so
+    existing invocations keep working.""",
+)
 @click.option(
     "--taxa_list",
     default="../_data/taxon_list.yml",
@@ -171,21 +177,32 @@ def populate_jbrowse2(
     log_file,
     log_level,
 ):
-    """CLI entry for populate-jbrowse2"""
+    """CLI entry for populate-jbrowse2
+
+    Prints or runs the jbrowse commands that build LIS's JBrowse 2 config, planned
+    offline from a datastore-metadata checkout.
+    """
     logger = setup_logging(log_file, log_level, "populate-jbrowse2")
-    if not jbrowse_url:
-        logger.error("--jbrowse_url required for populate-jbrowse2")
-        sys.exit(1)
-    parser = ProcessCollections(
-        logger,
-        jbrowse_url=jbrowse_url,
-        datastore_url=datastore_url,
-        out_dir=jbrowse_out,
-    )  # initialize class
-    logger.info("Processing Collections...")
-    parser.parse_collections(from_github, taxa_list)
-    logger.info("Creating JBrowse2 Config...")
-    parser.populate_jbrowse2(jbrowse_out, cmds_only)  # populate JBrowse2
+    if jbrowse_url:
+        logger.warning("--jbrowse_url is unused; populate-jekyll writes those links")
+    if not os.path.isdir(from_github):
+        raise click.ClickException(
+            f"{from_github} is not a datastore-metadata checkout"
+        )
+    if taxa_list and not os.path.exists(taxa_list):
+        raise click.ClickException(f"taxon list {taxa_list} does not exist")
+    index = DatastoreIndex(
+        from_github, logger=logger, datastore_url=datastore_url
+    ).build()
+    entries = jbrowse.plan(index, jbrowse.genera(index, taxa_list))
+    os.makedirs(jbrowse_out, exist_ok=True)
+    for entry in entries:
+        cmd = jbrowse.command(entry, jbrowse_out)
+        if cmds_only:
+            click.echo(cmd)
+        else:
+            subprocess.check_call(cmd, shell=True, executable="/bin/bash")
+    logger.info("%s JBrowse entries for %s", len(entries), jbrowse_out)
 
 
 @click.command()

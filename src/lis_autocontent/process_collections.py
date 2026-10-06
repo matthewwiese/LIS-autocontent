@@ -111,7 +111,7 @@ class ProcessCollections:
         return (gensp, strain)
 
     def process_collections(self, cmds_only, mode):
-        """General method to create a jbrowse-components config or populate a blast db using mode"""
+        """Populate a BLAST db or DSCensor nodes, by mode"""
         logger = self.logger
         pathlib.Path(self.out_dir).mkdir(parents=True, exist_ok=True)
         for collection_type in self.collection_types:  # for all collections
@@ -160,25 +160,14 @@ class ProcessCollections:
                 ### possibly break out next section into methods: blast, jbrowse, then types
 
                 if collection_type == "genomes":  # add genome
-                    if mode == "jbrowse":  # for jbrowse
-                        cmd = f"jbrowse add-assembly -n {name} --out {os.path.abspath(self.out_dir)}/ -t bgzipFasta --force"
-                        cmd += f' --displayName "{genus.capitalize()} {species} {infraspecies} V{version.replace("gnm", "")} {collection_type.capitalize()}" {url}'
-                        # print("url: ", url)
-                    elif mode == "blast":  # for blast
+                    if mode == "blast":  # for blast
                         cmd = f"set -o pipefail -o errexit -o nounset; curl {url} | gzip -dc"  # retrieve genome and decompress
                         cmd += f'| makeblastdb -parse_seqids -out {self.out_dir}/{name} -hash_index -dbtype nucl -title "{genus.capitalize()} {species} {infraspecies} V{version.replace("gnm", "")} {collection_type.capitalize()}"'
                         if taxid:
                             cmd += f" -taxid {taxid}"
 
                 if collection_type == "annotations":  # add annotation
-                    if mode == "jbrowse":  # for jbrowse
-                        if url.endswith(
-                            "faa.gz"
-                        ):  # only process non faa annotations in jbrowse
-                            continue
-                        cmd = f"jbrowse add-track -a {parent[0]} --out {os.path.abspath(self.out_dir)}/ --force"
-                        cmd += f' -n "{genus.capitalize()} {species} {infraspecies} V{version.replace("ann", "")} {collection_type.capitalize()}" {url}'
-                    elif mode == "blast":  # for blast
+                    if mode == "blast":  # for blast
                         if not url.endswith(
                             "faa.gz"
                         ):  # only process faa annotations in blast
@@ -199,31 +188,8 @@ class ProcessCollections:
                         if taxid:
                             cmd += f" -taxid {taxid}"
 
-                if collection_type == "genome_alignments":  # add pair-wise paf files
-                    if mode == "jbrowse":  # for jbrowse
-                        cmd = f"jbrowse add-track --assemblyNames {','.join(parent)} --out {os.path.abspath(self.out_dir)}/ {url} --force"
-                        bam_url = self.files[collection_type][dsfile].get(
-                            "bam_url", None
-                        )
-                        if bam_url:
-                            bam_name = os.path.basename(bam_url)
-                            cmd += f";jbrowse add-track -n {bam_name} --trackId {bam_name} -a {parent[1]}"
-                            cmd += f" --out {os.path.abspath(self.out_dir)}/ --indexFile {bam_url}.bai {bam_url} --force"  # add BAM alignment track for genome_alignments
-                    elif mode == "blast":  # for blast
-                        continue  # Not blastable at the moment
-
-                if collection_type == "expression":  # add bigwigs
-
-                    if mode == "jbrowse":  # for jbrowse
-                        if url.endswith("bw"):
-                            bw_name = self.files[collection_type][dsfile].get(
-                                "name", None
-                            )
-                            bw_id = bw_name.split(".")[-2:]
-                            project_id = ".".join(bw_name.split(".")[1:-2])
-                            cmd = f"jbrowse add-track {url} --name {bw_id[0]} --assemblyNames {parent[0]} --category expression,{project_id} --out {os.path.abspath(self.out_dir)} --force"
-
-                    elif mode == "blast":  # for blast
+                if collection_type in ("genome_alignments", "expression"):
+                    if mode == "blast":  # for blast
                         continue  # Not blastable at the moment
 
                 # MORE CANONICAL TYPES HERE
@@ -236,15 +202,6 @@ class ProcessCollections:
                     cmd, shell=True, executable="/bin/bash"
                 ):  # execute cmd and check exit value = 0
                     logger.error(f"Non-zero exit value: {cmd}")
-
-    def populate_jbrowse2(self, out_dir, cmds_only=False):
-        """Populate jbrowse2 config object from collected objects"""
-        if out_dir:  # set output directory
-            self.out_dir = out_dir
-        pathlib.Path(self.out_dir).mkdir(parents=True, exist_ok=True)
-        self.process_collections(
-            cmds_only, "jbrowse"
-        )  # process collections for jbrowse-components
 
     def populate_blast(self, out_dir, cmds_only=False):
         """Populate a BLAST db for genome_main, mrna/mrna_primary and protein/protein_primary"""

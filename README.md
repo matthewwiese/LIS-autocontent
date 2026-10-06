@@ -48,6 +48,8 @@ Commands:
 
 ## JBrowse 2
 
+`populate-jbrowse2` prints (`--cmds_only`) or runs the `jbrowse` commands that build
+LIS's JBrowse 2 config, planned offline from a `datastore-metadata` checkout.
 `populate-jekyll` adds JBrowse links to each strain's resources in the Jekyll site's
 `species_resources.yml`, opening the instance `jekyll_instance` names in
 [`src/lis_autocontent/jbrowse.yml`](src/lis_autocontent/jbrowse.yml); `--jbrowse_url`

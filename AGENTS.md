@@ -42,7 +42,7 @@ datastore-metadata mirrors the Data Store's tree, holding only metadata:
 
 | | `DatastoreIndex` (`datastore_files.py`) | `ProcessCollections` (`process_collections.py`) |
 | --- | --- | --- |
-| Serves | `populate-catalog`, `populate-divbrowse` | `populate-jekyll`, `-jbrowse2`, `-blast`, `-dscensor` |
+| Serves | `populate-catalog`, `-divbrowse`, `-jbrowse2` | `populate-jekyll`, `-blast`, `-dscensor` |
 | Reads | the checkout only; offline | the checkout plus HEAD probes of the live store; the store alone without a checkout |
 | Model | typed dataclasses | nested dicts keyed by collection type |
 | Role | the base for new work | legacy; outputs already deployed, change conservatively |
@@ -95,6 +95,10 @@ callers depend on the difference.
 - `divbrowse.py` builds one compose service per diversity collection and refuses any
   collection the format can't express. Per-genus hosts and combined references are
   data in `divbrowse.yml`, package data like `filetypes.yml`.
+- `jbrowse.py` plans LIS's JBrowse 2 assemblies and tracks, and renders them as
+  `jbrowse` commands. Its naming is the deployed config's, so change it only with a
+  full-store comparison of the commands. `jbrowse.yml` lists the JBrowse instances and
+  the one `populate-jekyll`'s resource links open.
 
 New metadata belongs on `DatastoreIndex` (a field or a pass) and reaches consumers through
 the catalog. Don't re-walk the checkout elsewhere. Change `ProcessCollections` only to keep
