@@ -9,6 +9,7 @@ import click
 from .catalog import CatalogBuilder
 from .datastore_files import DatastoreIndex
 from .divbrowse import DivbrowseError, compose_file, load_config
+from . import gcv
 from . import jbrowse
 from .process_collections import ProcessCollections
 
@@ -420,3 +421,66 @@ def populate_divbrowse(
     with open(compose_out, "w", encoding="utf-8") as handle:
         handle.write(text)
     logger.info("wrote %s with %s services", compose_out, len(collections))
+
+
+@click.command()
+@click.option(
+    "--instance",
+    "instances",
+    multiple=True,
+    help="""GCV instance to build, by its name in gcv.yml (e.g. glycine). Repeat for
+    several; all of them by default.""",
+)
+@click.option(
+    "--from_github",
+    default="./datastore-metadata",
+    help="""Path to datastore-metadata github directory. (Default: ./datastore-metadata).""",
+)
+@click.option(
+    "--out_dir",
+    default="./gcv",
+    help="""Where to write deploy.sh and a directory per instance. (Default: ./gcv)""",
+)
+@click.option(
+    "--datastore_url",
+    default="https://data.legumeinfo.org",
+    help="""URL the loaded files are fetched from.""",
+)
+@click.option(
+    "--log_file",
+    default="./populate-gcv.log",
+    help="""Log file to output messages. (default: ./populate-gcv.log)""",
+)
+@click.option(
+    "--log_level",
+    default="INFO",
+    help="""Log Level to output messages. (default: INFO)""",
+)
+def populate_gcv(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    instances, from_github, out_dir, datastore_url, log_file, log_level
+):
+    """CLI entry for populate-gcv
+
+    Writes, offline from a datastore-metadata checkout, a gcv-docker-compose overlay per
+    GCV instance in gcv.yml and a deploy.sh that lays them over the template and loads
+    them. A member that can't be loaded from published files stops the command without
+    writing anything.
+    """
+    logger = setup_logging(log_file, log_level, "populate-gcv")
+    if not os.path.isdir(from_github):
+        raise click.ClickException(
+            f"{from_github} is not a datastore-metadata checkout"
+        )
+    index = DatastoreIndex(
+        from_github, logger=logger, datastore_url=datastore_url
+    ).build()
+    try:
+        config = gcv.load_config()
+        planned = gcv.plan(index, config, instances)
+    except gcv.GcvError as err:
+        logger.error("not writing %s:\n%s", out_dir, err)
+        raise click.ClickException(f"cannot build GCV instances:\n{err}") from err
+    written = gcv.render(planned, config, out_dir)
+    logger.info(
+        "wrote %s files for %s instances to %s", len(written), len(planned), out_dir
+    )
