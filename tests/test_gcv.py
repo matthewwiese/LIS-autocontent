@@ -71,6 +71,7 @@ def _config(tmp_path, instances, **top):
         "redis_loader": {
             "image": "ghcr.io/legumeinfo/microservices-redis_loader:1.4.0"
         },
+        "proxy_port": 8080,
         "env": {"DOMAIN": "localhost"},
         "instances": instances,
         **top,
@@ -81,13 +82,8 @@ def _config(tmp_path, instances, **top):
     return gcv.load_config(str(path))
 
 
-def _instance(members, port=8101, family="legfed_v1_0", profile="services"):
-    return {
-        "profile": profile,
-        "family": family,
-        "env": {"TRAEFIK_PORT": port},
-        "members": members,
-    }
+def _instance(members, family="legfed_v1_0", profile="services", **env):
+    return {"profile": profile, "family": family, "env": env, "members": members}
 
 
 def _plan(checkout, config, names=None):
@@ -196,7 +192,7 @@ def test_every_problem_is_reported_at_once(checkout, tmp_path):
 def test_only_the_named_instances_are_planned(checkout, tmp_path):
     config = _config(
         tmp_path,
-        {"glycine": _instance([SOY]), "lis": _instance([COWPEA_ANN2], port=8102)},
+        {"glycine": _instance([SOY]), "lis": _instance([COWPEA_ANN2])},
     )
     assert [i.name for i in _plan(checkout, config, ["lis"])] == ["lis"]
     with pytest.raises(gcv.GcvError, match="no instance vigna"):
@@ -206,12 +202,19 @@ def test_only_the_named_instances_are_planned(checkout, tmp_path):
 def test_the_config_refuses_uppercase_names_shared_ports_and_derived_keys(tmp_path):
     with pytest.raises(gcv.GcvError, match="must be lowercase"):
         _config(tmp_path, {"Glycine": _instance([SOY])})
+    shared = {
+        "a": _instance([SOY], profile="all", GCV_PORT=4200),
+        "b": _instance([SOY], profile="all", GCV_PORT=4200),
+    }
     with pytest.raises(
-        gcv.GcvError, match="port 8101 is published by a TRAEFIK_PORT and b"
+        gcv.GcvError, match="port 4200 is published by a GCV_PORT and b"
     ):
-        _config(tmp_path, {"a": _instance([SOY]), "b": _instance([SOY])})
-    with pytest.raises(gcv.GcvError, match="sets COMPOSE_PROJECT_NAME"):
-        _config(tmp_path, {"a": _instance([SOY])}, env={"COMPOSE_PROJECT_NAME": "x"})
+        _config(tmp_path, shared)
+    with pytest.raises(gcv.GcvError, match="port 8080 is published by the front proxy"):
+        _config(tmp_path, {"a": _instance([SOY], profile="all", GCV_PORT=8080)})
+    for key in ("COMPOSE_PROJECT_NAME", "MICROSERVICES_PATH"):
+        with pytest.raises(gcv.GcvError, match=f"sets {key}"):
+            _config(tmp_path, {"a": _instance([SOY])}, env={key: "x"})
     with pytest.raises(gcv.GcvError, match="publishes GCV_PORT but sets none"):
         _config(tmp_path, {"a": _instance([SOY], profile="all")})
 
@@ -226,7 +229,7 @@ def test_the_rendered_tree_matches_the_reference(checkout, tmp_path):
         tmp_path,
         {
             "glycine": _instance([SOY]),
-            "lis": {**_instance(members, port=8102), "profile": "all"},
+            "lis": _instance(members, profile="all"),
         },
         env={"DOMAIN": "localhost", "GCV_PORT": 4200},
     )
@@ -248,6 +251,17 @@ def test_the_rendered_tree_matches_the_reference(checkout, tmp_path):
         with open(expected, encoding="utf-8") as handle:
             assert text == handle.read(), relative
     assert os.access(out / "deploy.sh", os.X_OK)
+
+
+def test_each_instance_is_routed_by_its_own_path(checkout, tmp_path):
+    config = _config(tmp_path, {"lis": _instance([SOY]), "lis_fam3": _instance([SOY])})
+    instances = _plan(checkout, config)
+    routes = yaml.safe_load(gcv.proxy_routes(instances))["http"]
+    assert routes["routers"]["lis"]["rule"] == "PathPrefix(`/lis/`)"
+    assert routes["services"]["lis_fam3"]["loadBalancer"]["servers"] == [
+        {"url": "http://lis_fam3-proxy"}
+    ]
+    assert "MICROSERVICES_PATH=/lis_fam3\n" in gcv.env_file(instances[1])
 
 
 def test_chromosomes_span_each_fai_sequence(tmp_path):
