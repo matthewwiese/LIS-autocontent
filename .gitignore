@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Reference .env files for populate-gcv's golden test
+!tests/data/**/.env
