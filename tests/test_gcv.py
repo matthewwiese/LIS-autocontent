@@ -67,11 +67,7 @@ def fixture_checkout(tmp_path, write):
 def _config(tmp_path, instances, **top):
     """A gcv.yml with ``instances``, written and loaded."""
     config = {
-        "template": "v2.6.1-c0",
-        "redis_loader": {
-            "image": "ghcr.io/legumeinfo/microservices-redis_loader:1.4.0"
-        },
-        "proxy_port": 8080,
+        "template": "v2.7.0-c0",
         "env": {"DOMAIN": "localhost"},
         "instances": instances,
         **top,
@@ -199,24 +195,20 @@ def test_only_the_named_instances_are_planned(checkout, tmp_path):
         _plan(checkout, config, ["vigna"])
 
 
-def test_the_config_refuses_uppercase_names_shared_ports_and_derived_keys(tmp_path):
+def test_the_config_refuses_uppercase_names_shared_paths_and_derived_keys(tmp_path):
     with pytest.raises(gcv.GcvError, match="must be lowercase"):
         _config(tmp_path, {"Glycine": _instance([SOY])})
     shared = {
-        "a": _instance([SOY], profile="all", GCV_PORT=4200),
-        "b": _instance([SOY], profile="all", GCV_PORT=4200),
+        "a": _instance([SOY], profile="all", GCV_PATH="/gcv/"),
+        "b": _instance([SOY], profile="all", GCV_PATH="/gcv/"),
     }
-    with pytest.raises(
-        gcv.GcvError, match="port 4200 is published by a GCV_PORT and b"
-    ):
+    with pytest.raises(gcv.GcvError, match="GCV_PATH /gcv/ is set by a and b"):
         _config(tmp_path, shared)
-    with pytest.raises(gcv.GcvError, match="port 8080 is published by the front proxy"):
-        _config(tmp_path, {"a": _instance([SOY], profile="all", GCV_PORT=8080)})
-    for key in ("COMPOSE_PROJECT_NAME", "MICROSERVICES_PATH"):
+    for key in ("COMPOSE_PROJECT_NAME", "MICROSERVICES_PATH", "RDB_URL"):
         with pytest.raises(gcv.GcvError, match=f"sets {key}"):
             _config(tmp_path, {"a": _instance([SOY])}, env={key: "x"})
-    with pytest.raises(gcv.GcvError, match="publishes GCV_PORT but sets none"):
-        _config(tmp_path, {"a": _instance([SOY], profile="all")})
+    with pytest.raises(gcv.GcvError, match="sets no GCV_PATH"):
+        _config(tmp_path, {"a": _instance([SOY], profile="all", GCV_PATH="/gcv")})
 
 
 def test_the_packaged_config_is_valid():
@@ -229,9 +221,8 @@ def test_the_rendered_tree_matches_the_reference(checkout, tmp_path):
         tmp_path,
         {
             "glycine": _instance([SOY]),
-            "lis": _instance(members, profile="all"),
+            "lis": _instance(members, profile="all", GCV_PATH="/lis/gcv/"),
         },
-        env={"DOMAIN": "localhost", "GCV_PORT": 4200},
     )
     out = tmp_path / "gcv"
     written = gcv.render(_plan(checkout, config), config, str(out))
@@ -250,17 +241,12 @@ def test_the_rendered_tree_matches_the_reference(checkout, tmp_path):
                 handle.write(text)
         with open(expected, encoding="utf-8") as handle:
             assert text == handle.read(), relative
-    assert os.access(out / "deploy.sh", os.X_OK)
+    assert os.access(out / "data/lis/docker-entrypoint-initdb.d/10-load.sh", os.X_OK)
 
 
-def test_each_instance_is_routed_by_its_own_path(checkout, tmp_path):
+def test_each_instance_is_served_at_its_own_path(checkout, tmp_path):
     config = _config(tmp_path, {"lis": _instance([SOY]), "lis_fam3": _instance([SOY])})
     instances = _plan(checkout, config)
-    routes = yaml.safe_load(gcv.proxy_routes(instances))["http"]
-    assert routes["routers"]["lis"]["rule"] == "PathPrefix(`/lis/`)"
-    assert routes["services"]["lis_fam3"]["loadBalancer"]["servers"] == [
-        {"url": "http://lis_fam3-proxy"}
-    ]
     assert "MICROSERVICES_PATH=/lis_fam3\n" in gcv.env_file(instances[1])
 
 

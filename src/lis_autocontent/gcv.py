@@ -1,11 +1,11 @@
-"""Plan LIS's Genome Context Viewer instances and render their gcv-docker-compose overlays.
+"""Plan LIS's Genome Context Viewer instances as gcv-docker-compose's gcvctl runs them.
 
-Each instance in gcv.yml becomes a directory: an .env, a compose override pinning
-redis_loader, and a load script that redis_loader runs while Redis is empty. deploy.sh
-lays each over a gcv-docker-compose release and starts it. A front Traefik proxy routes
-/<instance>/ to that instance's own proxy over a shared network, so instances publish
-no host ports. Any member that can't be loaded unambiguously from published files fails
-the build with its reasons.
+Each instance in gcv.yml becomes instances/<name>.env and a load script in
+data/<name>/docker-entrypoint-initdb.d/, which redis_loader runs while the instance's
+Redis is empty. Copied into a gcv-docker-compose checkout, `./gcvctl load <name>` builds
+an instance's database and `./gcvctl up <name>` serves it behind the shared proxy at
+/<name>/. Any member that can't be loaded unambiguously from published files fails the
+build with its reasons.
 """
 
 import functools
@@ -21,26 +21,25 @@ from .datastore_files import STATUS_KNOWN
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gcv.yml")
 INPUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gcv_inputs.py")
 
-TEMPLATE_URL = (
-    "https://github.com/legumeinfo/gcv-docker-compose/archive/refs/tags/{tag}.tar.gz"
-)
-COMPOSE_FILE = "compose.yml:compose.prod.yml:compose.gcv.yml"
-INITDB = "data/docker-entrypoint-initdb.d"
+TEMPLATE_URL = "https://github.com/legumeinfo/gcv-docker-compose/tree/{tag}"
+# gcvctl's defaults for an instance's files.
+ENV_DIR = "instances"
+INITDB = "data/{name}/docker-entrypoint-initdb.d"
 LOAD_SCRIPT = "10-load.sh"
 INPUTS_SCRIPT = "gcv_inputs.py"
 PROFILES = ("services", "all")
-# .env keys populate-gcv sets itself.
+# .env keys populate-gcv or gcvctl sets, and RDB_URL/RDB_SHA256, which a release of
+# built databases writes.
 DERIVED_ENV = (
     "COMPOSE_PROJECT_NAME",
     "COMPOSE_FILE",
     "COMPOSE_PROFILES",
     "MICROSERVICES_PATH",
+    "REDIS_DATA_DIR",
+    "INITDB_DIR",
+    "RDB_URL",
+    "RDB_SHA256",
 )
-# Ports each profile publishes on the host; the front proxy publishes the rest.
-PROFILE_PORTS = {"services": (), "all": ("GCV_PORT",)}
-# The docker network joining the front proxy to each instance's proxy.
-PROXY_NETWORK = "gcv"
-PROXY_IMAGE = "traefik:v3.3"
 
 # Compose project names are lowercase.
 INSTANCE_NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -49,6 +48,8 @@ ENV_VALUE = re.compile(r"[^\s#'\"]+")
 # Words written into the load script unquoted.
 SHELL_WORD = re.compile(r"[A-Za-z0-9._:/+=-]+")
 FAMILY = re.compile(r"[A-Za-z0-9_.]+")
+# The GCV web app's path: absolute, with the trailing slash its nginx config needs.
+GCV_PATH = re.compile(r"/(?:[A-Za-z0-9._-]+/)+")
 
 
 class GcvError(Exception):
@@ -133,9 +134,12 @@ def _instance_problems(name, instance, env):
     own_env = instance.get("env", {})
     problems.extend(_env_problems(own_env, where))
     merged = {**env, **own_env} if isinstance(own_env, dict) else env
-    for port in PROFILE_PORTS.get(instance.get("profile"), ()):
-        if port not in merged:
-            problems.append(f"{where} publishes {port} but sets none")
+    if instance.get("profile") == "all" and not GCV_PATH.fullmatch(
+        str(merged.get("GCV_PATH", ""))
+    ):
+        problems.append(
+            f"{where} runs the web app but sets no GCV_PATH like /{name}/gcv/"
+        )
     members = instance.get("members")
     if not (isinstance(members, list) and members):
         problems.append(f"{where} needs a list of members")
@@ -149,17 +153,17 @@ def _instance_problems(name, instance, env):
     return problems
 
 
-def _port_problems(instances, env, proxy_port):
-    """Host ports published by more than one instance, or by one and the front proxy."""
-    owners = {str(proxy_port): ["the front proxy"]}
+def _path_problems(instances, env):
+    """Web app paths shared by two instances, which the shared proxy can't route."""
+    owners = {}
     for name, instance in instances.items():
-        merged = {**env, **instance.get("env", {})}
-        for port in PROFILE_PORTS[instance["profile"]]:
-            owners.setdefault(str(merged[port]), []).append(f"{name} {port}")
+        if instance["profile"] == "all":
+            path = {**env, **instance.get("env", {})}["GCV_PATH"]
+            owners.setdefault(path, []).append(name)
     return [
-        f"port {port} is published by {' and '.join(users)}"
-        for port, users in sorted(owners.items())
-        if len(users) > 1
+        f"GCV_PATH {path} is set by {' and '.join(names)}"
+        for path, names in sorted(owners.items())
+        if len(names) > 1
     ]
 
 
@@ -178,12 +182,6 @@ def load_config(path=CONFIG_PATH):
         and SHELL_WORD.fullmatch(config["template"])
     ):
         problems.append("template must name a gcv-docker-compose release tag")
-    proxy_port = config.get("proxy_port")
-    if not (isinstance(proxy_port, int) and not isinstance(proxy_port, bool)):
-        problems.append("proxy_port must be the front proxy's host port")
-    loader = config.get("redis_loader")
-    if not (isinstance(loader, dict) and isinstance(loader.get("image"), str)):
-        problems.append("redis_loader must be a compose service with an image")
     env = config.get("env", {})
     problems.extend(_env_problems(env, "top-level"))
     instances = config.get("instances")
@@ -193,7 +191,7 @@ def load_config(path=CONFIG_PATH):
     for name, instance in instances.items():
         problems.extend(_instance_problems(name, instance, env))
     if not problems:
-        problems.extend(_port_problems(instances, env, proxy_port))
+        problems.extend(_path_problems(instances, env))
     if problems:
         raise GcvError(f"{path}: " + "\n".join(problems))
     return config
@@ -364,90 +362,14 @@ def plan(index, config, names=None):
 
 
 def env_file(instance):
-    """The instance's .env, read by docker compose from its project directory."""
+    """instances/<name>.env, which gcvctl passes to docker compose for the instance."""
     env = {
-        "COMPOSE_PROJECT_NAME": instance.name,
-        "COMPOSE_FILE": COMPOSE_FILE,
         "COMPOSE_PROFILES": instance.profile,
         "MICROSERVICES_PATH": f"/{instance.name}",
         **instance.env,
     }
     lines = "".join(f"{key}={value}\n" for key, value in env.items())
     return f"# {instance.name}: generated by lis-autocontent populate-gcv\n{lines}"
-
-
-def proxy_alias(name):
-    """The instance proxy's name on the shared network."""
-    return f"{name}-proxy"
-
-
-def compose_override(instance, config):
-    """compose.gcv.yml: the instance proxy on the shared network, and redis_loader."""
-    loader = yaml.safe_dump({"redis_loader": config["redis_loader"]})
-    loader = "".join(f"  {line}\n" for line in loader.splitlines())
-    return f"""# Generated by lis-autocontent populate-gcv
-services:
-  reverse-proxy:
-    # Reached by the front proxy over the {PROXY_NETWORK} network, not a host port.
-    ports: !reset []
-    networks:
-      default:
-      {PROXY_NETWORK}:
-        aliases:
-          - {proxy_alias(instance.name)}
-{loader}networks:
-  {PROXY_NETWORK}:
-    name: {PROXY_NETWORK}
-    external: true
-"""
-
-
-def proxy_compose(config):
-    """compose.yml for the front proxy, which owns the shared network."""
-    return f"""# Front proxy for LIS's GCV instances: routes /<instance>/ to that instance's own
-# proxy, as traefik/gcv.yml lists them. Traefik reloads that file when it changes.
-# Generated by lis-autocontent populate-gcv.
-name: gcv-proxy
-
-services:
-  proxy:
-    image: {PROXY_IMAGE}
-    command:
-      - --entrypoints.web.address=:80
-      - --providers.file.directory=/etc/traefik/dynamic
-      - --providers.file.watch=true
-    ports:
-      - "${{PROXY_PORT:-{config["proxy_port"]}}}:80"
-    volumes:
-      - ./traefik:/etc/traefik/dynamic:ro
-    networks:
-      - {PROXY_NETWORK}
-    restart: always
-
-networks:
-  {PROXY_NETWORK}:
-    name: {PROXY_NETWORK}
-"""
-
-
-def proxy_routes(instances):
-    """traefik/gcv.yml: one router and service per instance.
-
-    The trailing slash keeps /lis/ from matching /lis_fam3/. Paths and the Host header
-    pass through unchanged, for the instance's routers on DOMAIN and /<instance>.
-    """
-    routers = {
-        i.name: {"rule": f"PathPrefix(`/{i.name}/`)", "service": i.name}
-        for i in instances
-    }
-    services = {
-        i.name: {
-            "loadBalancer": {"servers": [{"url": f"http://{proxy_alias(i.name)}"}]}
-        }
-        for i in instances
-    }
-    routes = yaml.safe_dump({"http": {"routers": routers, "services": services}})
-    return f"# Generated by lis-autocontent populate-gcv\n{routes}"
 
 
 def load_command(load):
@@ -493,67 +415,35 @@ inputs=/docker-entrypoint-initdb.d/{INPUTS_SCRIPT}
     return header + "".join(f"\n{load_command(load)}" for load in instance.loads)
 
 
-def deploy_script(instances, config):
-    """deploy.sh: lay each instance over the template release, load it and start it."""
-    names = " ".join(instance.name for instance in instances)
-    tag = config["template"]
-    return f"""#!/bin/sh
-# Deploy LIS's GCV instances: ./deploy.sh [instance ...], all by default.
-# Generated by lis-autocontent populate-gcv.
-#
-# Starts the front proxy, then lays each instance directory over gcv-docker-compose
-# {tag}, whose .env and example data it replaces, loads it and starts it.
-# redis_loader loads Redis only while it is empty: to reload an instance, stop it and
-# delete its data/redis/dump.rdb.
-
-set -o errexit -o nounset
-
-TEMPLATE={tag}
-INSTANCES="{names}"
-
-cd "$(dirname "$0")"
-archive="gcv-docker-compose-$TEMPLATE.tar.gz"
-[ -s "$archive" ] || curl -fsSL -o "$archive" \\
-  "{TEMPLATE_URL.format(tag="$TEMPLATE")}"
-
-[ $# -gt 0 ] || set -- $INSTANCES
-for instance; do
-  case " $INSTANCES " in
-    *" $instance "*) ;;
-    *) echo "unknown instance: $instance" >&2; exit 1 ;;
-  esac
-done
-docker compose up -d
-for instance; do
-  echo "== $instance"
-  tar -xzf "$archive" -C "$instance" --strip-components=1 \\
-    --exclude='*/.env' --exclude='*/{INITDB}/example.sh'
-  (cd "$instance" && docker compose run --rm redis_loader && docker compose up -d)
-done
-"""
-
-
 def readme(instances, config):
-    """README.md: what each instance loads, for review."""
+    """README.md: how to use the tree, and what each instance loads."""
     rows = "".join(
-        f"| `{i.name}` | {i.profile} | `{i.family}` | {len(i.loads)} |\n"
+        f"| `{i.name}` | {i.profile} | `/{i.name}/` | `{i.family}` | {len(i.loads)} |\n"
         for i in instances
     )
+    tag = config["template"]
     return f"""# LIS GCV instances
 
-Generated by `lis-autocontent populate-gcv` over gcv-docker-compose
-`{config["template"]}`. Deploy with `./deploy.sh [instance ...]`.
+Generated by `lis-autocontent populate-gcv` for gcv-docker-compose
+[`{tag}`]({TEMPLATE_URL.format(tag=tag)}). Copy `instances/` and `data/` into a checkout
+of it, then:
 
-The front proxy listens on port {config["proxy_port"]} (or `PROXY_PORT`) and serves
-each instance's microservices at `/<instance>/`, for requests to its `DOMAIN`.
+```console
+./gcvctl proxy              # once: the shared proxy
+./gcvctl load <instance>    # build the instance's database from the Data Store
+./gcvctl up <instance>      # serve it at /<instance>/
+```
 
-| Instance | Profile | Families | Annotations |
-| --- | --- | --- | --- |
+To serve a database built elsewhere instead of loading one, set `RDB_URL` and
+`RDB_SHA256` in the instance's `.env` before `./gcvctl up`.
+
+| Instance | Profile | Path | Families | Annotations |
+| --- | --- | --- | --- | --- |
 {rows}"""
 
 
 def render(instances, config, out_dir):
-    """Write every instance's directory, deploy.sh and README.md; returns the paths."""
+    """Write every instance's .env and load scripts, and README.md; returns the paths."""
 
     def write(relative, text, mode=0o644):
         path = os.path.join(out_dir, relative)
@@ -564,15 +454,12 @@ def render(instances, config, out_dir):
         written.append(path)
 
     written = []
-    write("deploy.sh", deploy_script(instances, config), 0o755)
     write("README.md", readme(instances, config))
-    write("compose.yml", proxy_compose(config))
-    write("traefik/gcv.yml", proxy_routes(instances))
     for instance in instances:
-        write(f"{instance.name}/.env", env_file(instance))
-        write(f"{instance.name}/compose.gcv.yml", compose_override(instance, config))
-        write(f"{instance.name}/{INITDB}/{LOAD_SCRIPT}", load_script(instance), 0o755)
-        inputs = os.path.join(out_dir, instance.name, INITDB, INPUTS_SCRIPT)
+        initdb = INITDB.format(name=instance.name)
+        write(f"{ENV_DIR}/{instance.name}.env", env_file(instance))
+        write(f"{initdb}/{LOAD_SCRIPT}", load_script(instance), 0o755)
+        inputs = os.path.join(out_dir, initdb, INPUTS_SCRIPT)
         shutil.copyfile(INPUTS_PATH, inputs)
         written.append(inputs)
     return written

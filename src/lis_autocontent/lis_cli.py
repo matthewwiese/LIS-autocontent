@@ -439,7 +439,8 @@ def populate_divbrowse(
 @click.option(
     "--out_dir",
     default="./gcv",
-    help="""Where to write deploy.sh and a directory per instance. (Default: ./gcv)""",
+    help="""Where to write instances/ and data/, to copy into a gcv-docker-compose
+    checkout. (Default: ./gcv)""",
 )
 @click.option(
     "--datastore_url",
@@ -461,10 +462,10 @@ def populate_gcv(  # pylint: disable=too-many-arguments,too-many-positional-argu
 ):
     """CLI entry for populate-gcv
 
-    Writes, offline from a datastore-metadata checkout, a gcv-docker-compose overlay per
-    GCV instance in gcv.yml and a deploy.sh that lays them over the template and loads
-    them. A member that can't be loaded from published files stops the command without
-    writing anything.
+    Writes, offline from a datastore-metadata checkout, each GCV instance in gcv.yml as
+    gcv-docker-compose's gcvctl runs it: instances/<name>.env and the load scripts
+    redis_loader runs under data/<name>/. A member that can't be loaded from published
+    files stops the command without writing anything.
     """
     logger = setup_logging(log_file, log_level, "populate-gcv")
     if not os.path.isdir(from_github):

@@ -5,18 +5,8 @@
 # gnmN, so that a second annotation of one assembly gets distinct chromosomes.
 # family: the family file each member loads, <prefix>.<family>.<key>.gfa.tsv.gz.
 
-# The gcv-docker-compose release each instance is laid over.
-template: v2.6.1-c0
-
-# Overrides the template's redis_loader service. Loading published GFF3 by URL needs
-# 1.4.0 (microservices seq-retrieve); until its image is released, build that commit.
-redis_loader:
-  image: lis-gcv-redis_loader:af9f056
-  build: https://github.com/legumeinfo/microservices.git#af9f056c9d062cc37e40c3dd30be60c1db049dd9:redis_loader
-  pull_policy: build
-
-# Host port of the front proxy, which serves each instance at /<instance>/.
-proxy_port: 8080
+# The gcv-docker-compose release whose gcvctl runs these instances.
+template: v2.7.0-c0
 
 # Every instance's .env, before its own env. DOMAIN is the public host: requests reach
 # the instances only with it as their Host header.
