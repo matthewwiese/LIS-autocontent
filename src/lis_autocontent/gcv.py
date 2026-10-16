@@ -2,13 +2,16 @@
 
 Each instance in gcv.yml becomes instances/<name>.env and a load script in
 data/<name>/docker-entrypoint-initdb.d/, which redis_loader runs while the instance's
-Redis is empty. Copied into a gcv-docker-compose checkout, `./gcvctl load <name>` builds
-an instance's database and `./gcvctl up <name>` serves it behind the shared proxy at
-/<name>/. Any member that can't be loaded unambiguously from published files fails the
-build with its reasons.
+Redis is empty; one that runs the web app also gets data/<name>/config.json. Copied into
+a gcv-docker-compose checkout, `./gcvctl load <name>` builds an instance's database and
+`./gcvctl up <name>` serves it behind the shared proxy at /<name>/, and its web app at
+/<name>/gcv/. Any member that can't be loaded unambiguously from published files fails
+the build with its reasons.
 """
 
+import copy
 import functools
+import json
 import os
 import re
 import shutil
@@ -20,6 +23,10 @@ from .datastore_files import STATUS_KNOWN
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gcv.yml")
 INPUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gcv_inputs.py")
+# gcv-docker-compose's config/config.json, less the servers' microservice URLs.
+APP_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "gcv_config.json"
+)
 
 TEMPLATE_URL = "https://github.com/legumeinfo/gcv-docker-compose/tree/{tag}"
 # gcvctl's defaults for an instance's files.
@@ -27,7 +34,19 @@ ENV_DIR = "instances"
 INITDB = "data/{name}/docker-entrypoint-initdb.d"
 LOAD_SCRIPT = "10-load.sh"
 INPUTS_SCRIPT = "gcv_inputs.py"
+APP_CONFIG = "data/{name}/config.json"
 PROFILES = ("services", "all")
+PROFILE_APP = "all"
+# Each server's microservices, under the instance's MICROSERVICES_PATH. Root-relative,
+# so the app reaches them on whatever host serves it.
+APP_SERVICES = {
+    "microSearch": ("GRPC", "micro-synteny-search/grpc-web"),
+    "chromosome": ("GRPC", "chromosome/grpc-web"),
+    "genes": ("POST", "genes"),
+    "blocks": ("GRPC", "macro-synteny-blocks/grpc-web"),
+    "search": ("GRPC", "search/grpc-web"),
+    "region": ("GRPC", "chromosome-region/grpc-web"),
+}
 # .env keys populate-gcv or gcvctl sets, and RDB_URL/RDB_SHA256, which a release of
 # built databases writes.
 DERIVED_ENV = (
@@ -35,6 +54,8 @@ DERIVED_ENV = (
     "COMPOSE_FILE",
     "COMPOSE_PROFILES",
     "MICROSERVICES_PATH",
+    "GCV_PATH",
+    "GCV_CONFIG",
     "REDIS_DATA_DIR",
     "INITDB_DIR",
     "RDB_URL",
@@ -48,8 +69,6 @@ ENV_VALUE = re.compile(r"[^\s#'\"]+")
 # Words written into the load script unquoted.
 SHELL_WORD = re.compile(r"[A-Za-z0-9._:/+=-]+")
 FAMILY = re.compile(r"[A-Za-z0-9_.]+")
-# The GCV web app's path: absolute, with the trailing slash its nginx config needs.
-GCV_PATH = re.compile(r"/(?:[A-Za-z0-9._-]+/)+")
 
 
 class GcvError(Exception):
@@ -114,7 +133,7 @@ def _env_problems(env, where):
     return problems
 
 
-def _instance_problems(name, instance, env):
+def _instance_problems(name, instance):
     """Problems with one instance's definition, before any lookup in the index."""
     where = f"instance {name}"
     if not isinstance(instance, dict):
@@ -131,15 +150,7 @@ def _instance_problems(name, instance, env):
         isinstance(instance.get("family"), str) and FAMILY.fullmatch(instance["family"])
     ):
         problems.append(f"{where} needs a family, such as legfed_v1_0")
-    own_env = instance.get("env", {})
-    problems.extend(_env_problems(own_env, where))
-    merged = {**env, **own_env} if isinstance(own_env, dict) else env
-    if instance.get("profile") == "all" and not GCV_PATH.fullmatch(
-        str(merged.get("GCV_PATH", ""))
-    ):
-        problems.append(
-            f"{where} runs the web app but sets no GCV_PATH like /{name}/gcv/"
-        )
+    problems.extend(_env_problems(instance.get("env", {}), where))
     members = instance.get("members")
     if not (isinstance(members, list) and members):
         problems.append(f"{where} needs a list of members")
@@ -151,20 +162,6 @@ def _instance_problems(name, instance, env):
                     "{path, rename_chromosomes}"
                 )
     return problems
-
-
-def _path_problems(instances, env):
-    """Web app paths shared by two instances, which the shared proxy can't route."""
-    owners = {}
-    for name, instance in instances.items():
-        if instance["profile"] == "all":
-            path = {**env, **instance.get("env", {})}["GCV_PATH"]
-            owners.setdefault(path, []).append(name)
-    return [
-        f"GCV_PATH {path} is set by {' and '.join(names)}"
-        for path, names in sorted(owners.items())
-        if len(names) > 1
-    ]
 
 
 @functools.lru_cache(maxsize=None)
@@ -189,11 +186,22 @@ def load_config(path=CONFIG_PATH):
         problems.append("instances must map each instance name to its definition")
         instances = {}
     for name, instance in instances.items():
-        problems.extend(_instance_problems(name, instance, env))
-    if not problems:
-        problems.extend(_path_problems(instances, env))
+        problems.extend(_instance_problems(name, instance))
     if problems:
         raise GcvError(f"{path}: " + "\n".join(problems))
+    return config
+
+
+@functools.lru_cache(maxsize=None)
+def load_app_config(path=APP_CONFIG_PATH):
+    """The web app's base config.json; GcvError if it can't be read."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            config = json.load(handle)
+    except (OSError, ValueError) as err:
+        raise GcvError(f"cannot read {path}: {err}") from err
+    if not (isinstance(config, dict) and isinstance(config.get("servers"), list)):
+        raise GcvError(f"{path}: servers must be a list")
     return config
 
 
@@ -366,10 +374,22 @@ def env_file(instance):
     env = {
         "COMPOSE_PROFILES": instance.profile,
         "MICROSERVICES_PATH": f"/{instance.name}",
-        **instance.env,
     }
+    if instance.profile == PROFILE_APP:
+        env["GCV_PATH"] = f"/{instance.name}/gcv/"
+        env["GCV_CONFIG"] = f"./{APP_CONFIG.format(name=instance.name)}"
+    env.update(instance.env)
     lines = "".join(f"{key}={value}\n" for key, value in env.items())
     return f"# {instance.name}: generated by lis-autocontent populate-gcv\n{lines}"
+
+
+def app_config(instance, base):
+    """data/<name>/config.json: ``base`` with every server on the instance's services."""
+    config = copy.deepcopy(base)
+    for server in config["servers"]:
+        for key, (kind, path) in APP_SERVICES.items():
+            server[key] = {"type": kind, "url": f"/{instance.name}/{path}"}
+    return json.dumps(config, indent=2) + "\n"
 
 
 def load_command(load):
@@ -418,7 +438,9 @@ inputs=/docker-entrypoint-initdb.d/{INPUTS_SCRIPT}
 def readme(instances, config):
     """README.md: how to use the tree, and what each instance loads."""
     rows = "".join(
-        f"| `{i.name}` | {i.profile} | `/{i.name}/` | `{i.family}` | {len(i.loads)} |\n"
+        f"| `{i.name}` | `/{i.name}/` | "
+        + (f"`/{i.name}/gcv/`" if i.profile == PROFILE_APP else "none")
+        + f" | `{i.family}` | {len(i.loads)} |\n"
         for i in instances
     )
     tag = config["template"]
@@ -431,19 +453,19 @@ of it, then:
 ```console
 ./gcvctl proxy              # once: the shared proxy
 ./gcvctl load <instance>    # build the instance's database from the Data Store
-./gcvctl up <instance>      # serve it at /<instance>/
+./gcvctl up <instance>      # serve it at /<instance>/, and its web app at /<instance>/gcv/
 ```
 
 To serve a database built elsewhere instead of loading one, set `RDB_URL` and
 `RDB_SHA256` in the instance's `.env` before `./gcvctl up`.
 
-| Instance | Profile | Path | Families | Annotations |
+| Instance | Microservices | Web app | Families | Annotations |
 | --- | --- | --- | --- | --- |
 {rows}"""
 
 
 def render(instances, config, out_dir):
-    """Write every instance's .env and load scripts, and README.md; returns the paths."""
+    """Write every instance's files, and README.md; returns the paths."""
 
     def write(relative, text, mode=0o644):
         path = os.path.join(out_dir, relative)
@@ -454,10 +476,13 @@ def render(instances, config, out_dir):
         written.append(path)
 
     written = []
+    base = load_app_config()
     write("README.md", readme(instances, config))
     for instance in instances:
         initdb = INITDB.format(name=instance.name)
         write(f"{ENV_DIR}/{instance.name}.env", env_file(instance))
+        if instance.profile == PROFILE_APP:
+            write(APP_CONFIG.format(name=instance.name), app_config(instance, base))
         write(f"{initdb}/{LOAD_SCRIPT}", load_script(instance), 0o755)
         inputs = os.path.join(out_dir, initdb, INPUTS_SCRIPT)
         shutil.copyfile(INPUTS_PATH, inputs)

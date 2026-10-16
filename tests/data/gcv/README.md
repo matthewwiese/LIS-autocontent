@@ -7,13 +7,13 @@ of it, then:
 ```console
 ./gcvctl proxy              # once: the shared proxy
 ./gcvctl load <instance>    # build the instance's database from the Data Store
-./gcvctl up <instance>      # serve it at /<instance>/
+./gcvctl up <instance>      # serve it at /<instance>/, and its web app at /<instance>/gcv/
 ```
 
 To serve a database built elsewhere instead of loading one, set `RDB_URL` and
 `RDB_SHA256` in the instance's `.env` before `./gcvctl up`.
 
-| Instance | Profile | Path | Families | Annotations |
+| Instance | Microservices | Web app | Families | Annotations |
 | --- | --- | --- | --- | --- |
-| `glycine` | services | `/glycine/` | `legfed_v1_0` | 1 |
-| `lis` | all | `/lis/` | `legfed_v1_0` | 2 |
+| `glycine` | `/glycine/` | none | `legfed_v1_0` | 1 |
+| `lis` | `/lis/` | `/lis/gcv/` | `legfed_v1_0` | 2 |

@@ -4,6 +4,8 @@
 # {path, rename_chromosomes: true} loads onto chromosomes named gnmN.annM instead of
 # gnmN, so that a second annotation of one assembly gets distinct chromosomes.
 # family: the family file each member loads, <prefix>.<family>.<key>.gfa.tsv.gz.
+# profile: all serves the GCV web app at /<name>/gcv/ beside the microservices at
+# /<name>/; services serves only the microservices.
 
 # The gcv-docker-compose release whose gcvctl runs these instances.
 template: v2.7.0-c0
@@ -16,7 +18,7 @@ env:
 
 instances:
   lis:
-    profile: services
+    profile: all
     family: legfed_v1_0
     members:
       - Aeschynomene/evenia/annotations/CIAT22838.gnm1.ann1.ZM3R
@@ -64,7 +66,7 @@ instances:
         rename_chromosomes: true
       - Vigna/unguiculata/annotations/IT97K-499-35.gnm1.ann2.FD7K
   lis_fam3:
-    profile: services
+    profile: all
     family: legume.fam3
     members:
       - Arachis/stenosperma/annotations/V10309.gnm1.ann1.CZRZ
@@ -77,7 +79,7 @@ instances:
       - Vicia/faba/annotations/Tiffany.gnm1.ann1.Y54X
       - Vicia/villosa/annotations/HV-30.gnm1.ann1.6WFF
   glycine:
-    profile: services
+    profile: all
     family: legfed_v1_0
     members:
       - Glycine/D3-tomentella/annotations/G1403.gnm1.ann1.XNZQ
@@ -135,7 +137,7 @@ instances:
       - Glycine/stenophita/annotations/G1974.gnm1.ann1.F257
       - Glycine/syndetika/annotations/G1300.gnm1.ann1.RRK6
   glycine_fam3:
-    profile: services
+    profile: all
     family: legume.fam3
     members:
       - Glycine/D3-tomentella/annotations/G1403.gnm1.ann1.XNZQ
@@ -193,7 +195,7 @@ instances:
       - Glycine/stenophita/annotations/G1974.gnm1.ann1.F257
       - Glycine/syndetika/annotations/G1300.gnm1.ann1.RRK6
   arachis:
-    profile: services
+    profile: all
     family: legfed_v1_0
     members:
       - Arachis/cardenasii/annotations/K10017.gnm1.ann1.5HQH
@@ -204,7 +206,7 @@ instances:
       - Arachis/ipaensis/annotations/K30076.gnm1.ann1.J37m
       - Arachis/stenosperma/annotations/V10309.gnm1.ann1.CZRZ
   cicer:
-    profile: services
+    profile: all
     family: legfed_v1_0
     members:
       - Cicer/arietinum/annotations/CDCFrontier.gnm3.ann1.NPD7
@@ -212,7 +214,7 @@ instances:
       - Cicer/echinospermum/annotations/S2Drd065.gnm1.ann1.YZ9H
       - Cicer/reticulatum/annotations/Besev079.gnm1.ann1.F01Z
   medicago:
-    profile: services
+    profile: all
     family: legfed_v1_0
     members:
       - Medicago/sativa/annotations/XinJiangDaYe.gnm1.ann1.RKB9
@@ -235,7 +237,7 @@ instances:
       - Medicago/truncatula/annotations/HM324.gnm1.ann1.SQH2
       - Medicago/truncatula/annotations/R108.gnmHiC_1.ann1.Y8NH
   phaseolus:
-    profile: services
+    profile: all
     family: legfed_v1_0
     members:
       - Phaseolus/acutifolius/annotations/Frijol_Bayo.gnm1.ann1.ML22

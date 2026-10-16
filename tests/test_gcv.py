@@ -5,6 +5,7 @@ The rendered tree is compared with tests/data/gcv/. After an intended change, ru
 """
 
 import gzip
+import json
 import os
 
 import pytest
@@ -195,24 +196,37 @@ def test_only_the_named_instances_are_planned(checkout, tmp_path):
         _plan(checkout, config, ["vigna"])
 
 
-def test_the_config_refuses_uppercase_names_shared_paths_and_derived_keys(tmp_path):
+def test_the_config_refuses_uppercase_names_and_derived_keys(tmp_path):
     with pytest.raises(gcv.GcvError, match="must be lowercase"):
         _config(tmp_path, {"Glycine": _instance([SOY])})
-    shared = {
-        "a": _instance([SOY], profile="all", GCV_PATH="/gcv/"),
-        "b": _instance([SOY], profile="all", GCV_PATH="/gcv/"),
-    }
-    with pytest.raises(gcv.GcvError, match="GCV_PATH /gcv/ is set by a and b"):
-        _config(tmp_path, shared)
-    for key in ("COMPOSE_PROJECT_NAME", "MICROSERVICES_PATH", "RDB_URL"):
+    for key in ("COMPOSE_PROJECT_NAME", "MICROSERVICES_PATH", "GCV_PATH", "RDB_URL"):
         with pytest.raises(gcv.GcvError, match=f"sets {key}"):
             _config(tmp_path, {"a": _instance([SOY])}, env={key: "x"})
-    with pytest.raises(gcv.GcvError, match="sets no GCV_PATH"):
-        _config(tmp_path, {"a": _instance([SOY], profile="all", GCV_PATH="/gcv")})
 
 
 def test_the_packaged_config_is_valid():
     assert gcv.load_config()["instances"]
+    assert gcv.load_app_config()["servers"]
+
+
+def test_an_instance_web_app_calls_its_own_microservices(checkout, tmp_path):
+    config = _config(tmp_path, {"cicer": _instance([SOY], profile="all")})
+    (instance,) = _plan(checkout, config)
+    env = gcv.env_file(instance)
+    assert "GCV_PATH=/cicer/gcv/\n" in env
+    assert "GCV_CONFIG=./data/cicer/config.json\n" in env
+    app = json.loads(gcv.app_config(instance, gcv.load_app_config()))
+    urls = {key: app["servers"][0][key]["url"] for key in gcv.APP_SERVICES}
+    assert urls["chromosome"] == "/cicer/chromosome/grpc-web"
+    assert all(url.startswith("/cicer/") for url in urls.values())
+
+
+def test_a_services_instance_has_no_web_app(checkout, tmp_path):
+    config = _config(tmp_path, {"glycine": _instance([SOY])})
+    (instance,) = _plan(checkout, config)
+    assert "GCV_PATH" not in gcv.env_file(instance)
+    written = gcv.render([instance], config, str(tmp_path / "gcv"))
+    assert not any(path.endswith("config.json") for path in written)
 
 
 def test_the_rendered_tree_matches_the_reference(checkout, tmp_path):
@@ -221,7 +235,7 @@ def test_the_rendered_tree_matches_the_reference(checkout, tmp_path):
         tmp_path,
         {
             "glycine": _instance([SOY]),
-            "lis": _instance(members, profile="all", GCV_PATH="/lis/gcv/"),
+            "lis": _instance(members, profile="all"),
         },
     )
     out = tmp_path / "gcv"
