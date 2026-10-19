@@ -12,7 +12,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from . import jbrowse
+from . import gcv, jbrowse
 from .datastore_files import DatastoreIndex
 
 SCHEMA_VERSION = 1
@@ -28,12 +28,16 @@ class CatalogBuilder:
         datastore_url=None,
         verify=False,
         jbrowse_config=None,
+        gcv_config=None,
     ):
         self.logger = logger or logging.getLogger("catalog")
         # all-genera's deployed config.json; without it JBrowse is left out entirely.
         self.jbrowse_config = jbrowse_config
+        # A gcv.yml; without it GCV is left out entirely.
+        self.gcv_config = gcv_config
         self.deployments = []
         self.placements = {}
+        self.gcv_placements = {}
         self.index = DatastoreIndex(
             metadata_dir,
             logger=self.logger,
@@ -79,6 +83,8 @@ class CatalogBuilder:
             record["inherited"] = list(collection.inherited)
         if collection.path in self.placements:
             record["jbrowse"] = self.placements[collection.path]
+        if collection.path in self.gcv_placements:
+            record["gcv"] = self.gcv_placements[collection.path]
         # NOTE: BUSCO metrics are parsed but deliberately withheld; uncomment to emit.
         # Downstream consumers of `busco`/`counts` carry a matching NOTE.
         # if collection.busco:
@@ -98,6 +104,7 @@ class CatalogBuilder:
                 )
             ]
             instances, self.placements = jbrowse.catalog_section(self.deployments)
+        gcv_instances = self.gcv_section(index)
         document = {
             "schema": SCHEMA_VERSION,
             "built_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -110,10 +117,26 @@ class CatalogBuilder:
         }
         if instances is not None:
             document["jbrowse_instances"] = instances
+        if gcv_instances is not None:
+            document["gcv_instances"] = gcv_instances
         document["collections"] = [
             self.collection_record(c) for c in index.collections.values()
         ]
         return document
+
+    def gcv_section(self, index):
+        """gcv_instances, setting the placements; None, leaving GCV out, without one."""
+        if not self.gcv_config:
+            return None
+        try:
+            config = gcv.load_config(self.gcv_config)
+            instances, self.gcv_placements = gcv.catalog_section(
+                index, config, self.logger
+            )
+        except gcv.GcvError as err:
+            self.logger.warning("leaving GCV out of the catalog: %s", err)
+            return None
+        return instances
 
     def write(self, out_path, indent=None):
         """Build and write the catalog. Returns the document."""

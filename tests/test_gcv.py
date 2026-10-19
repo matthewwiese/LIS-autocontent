@@ -6,12 +6,14 @@ The rendered tree is compared with tests/data/gcv/. After an intended change, ru
 
 import gzip
 import json
+import logging
 import os
 
 import pytest
 import yaml
 
 from lis_autocontent import gcv, gcv_inputs
+from lis_autocontent.catalog import CatalogBuilder
 from lis_autocontent.datastore_files import DatastoreIndex
 
 EXPECTED = os.path.join(os.path.dirname(__file__), "data", "gcv")
@@ -262,6 +264,69 @@ def test_each_instance_is_served_at_its_own_path(checkout, tmp_path):
     config = _config(tmp_path, {"lis": _instance([SOY]), "lis_fam3": _instance([SOY])})
     instances = _plan(checkout, config)
     assert "MICROSERVICES_PATH=/lis_fam3\n" in gcv.env_file(instances[1])
+
+
+def _catalog(checkout, config):
+    index = DatastoreIndex(checkout, datastore_url=URL).build()
+    return gcv.catalog_section(index, config, logging.getLogger("test"))
+
+
+def test_the_catalog_places_each_annotation_an_instance_loads(checkout, tmp_path):
+    members = [{"path": COWPEA_ANN1, "rename_chromosomes": True}, COWPEA_ANN2]
+    config = _config(tmp_path, {"vigna": _instance(members, profile="all")})
+    instances, placements = _catalog(checkout, config)
+    assert instances == {
+        "vigna": {
+            "url": "https://localhost/vigna/gcv/",
+            "source": "lis",
+            "status": "ok",
+            "family": "legfed_v1_0",
+            "services": "https://localhost/vigna/",
+        }
+    }
+    placed = [{"instance": "vigna", "source": "lis"}]
+    assert placements == {COWPEA_ANN1: placed, COWPEA_ANN2: placed}
+
+
+def test_an_instance_that_cannot_be_planned_is_unavailable_and_places_nothing(
+    checkout, tmp_path
+):
+    absent = "Glycine/max/annotations/Absent.gnm1.ann1.XXXX"
+    config = _config(
+        tmp_path,
+        {
+            "glycine": _instance([SOY, absent], profile="all"),
+            "vigna": _instance([COWPEA_ANN2], profile="all"),
+        },
+    )
+    instances, placements = _catalog(checkout, config)
+    assert instances["glycine"]["status"] == "unavailable"
+    assert "no such collection" in instances["glycine"]["detail"]
+    assert instances["vigna"]["status"] == "ok"
+    assert list(placements) == [COWPEA_ANN2]
+
+
+def test_an_instance_without_the_web_app_is_not_catalogued(checkout, tmp_path):
+    config = _config(tmp_path, {"glycine": _instance([SOY])})
+    assert _catalog(checkout, config) == ({}, {})
+
+
+def test_the_catalog_records_gcv_only_when_given_a_gcv_yml(checkout, tmp_path):
+    _config(tmp_path, {"glycine": _instance([SOY], profile="all")})
+    document = CatalogBuilder(checkout, gcv_config=str(tmp_path / "gcv.yml")).build()
+    assert document["gcv_instances"]["glycine"]["status"] == "ok"
+    soy = next(c for c in document["collections"] if c["path"] == SOY)
+    assert soy["gcv"] == [{"instance": "glycine", "source": "lis"}]
+    document = CatalogBuilder(checkout).build()
+    assert "gcv_instances" not in document
+    assert all("gcv" not in c for c in document["collections"])
+
+
+def test_an_unreadable_gcv_yml_leaves_gcv_out_of_the_catalog(checkout, tmp_path):
+    bad = tmp_path / "bad.yml"
+    bad.write_text("instances: [")
+    document = CatalogBuilder(checkout, gcv_config=str(bad)).build()
+    assert "gcv_instances" not in document
 
 
 def test_chromosomes_span_each_fai_sequence(tmp_path):

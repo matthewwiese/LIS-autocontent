@@ -29,6 +29,9 @@ APP_CONFIG_PATH = os.path.join(
 )
 
 TEMPLATE_URL = "https://github.com/legumeinfo/gcv-docker-compose/tree/{tag}"
+# Where the shared proxy serves an instance at its DOMAIN.
+APP_URL = "https://{domain}/{name}/gcv/"
+SERVICES_URL = "https://{domain}/{name}/"
 # gcvctl's defaults for an instance's files.
 ENV_DIR = "instances"
 INITDB = "data/{name}/docker-entrypoint-initdb.d"
@@ -200,8 +203,13 @@ def load_app_config(path=APP_CONFIG_PATH):
             config = json.load(handle)
     except (OSError, ValueError) as err:
         raise GcvError(f"cannot read {path}: {err}") from err
-    if not (isinstance(config, dict) and isinstance(config.get("servers"), list)):
-        raise GcvError(f"{path}: servers must be a list")
+    servers = config.get("servers") if isinstance(config, dict) else None
+    if not (
+        isinstance(servers, list)
+        and servers
+        and all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in servers)
+    ):
+        raise GcvError(f"{path}: servers must be a list of servers, each with an id")
     return config
 
 
@@ -488,3 +496,42 @@ def render(instances, config, out_dir):
         shutil.copyfile(INPUTS_PATH, inputs)
         written.append(inputs)
     return written
+
+
+def catalog_section(index, config, logger):
+    """(gcv_instances, {annotation path: placements}) for the catalog.
+
+    Only instances serving the web app are listed, at their DOMAIN. One is ok when every
+    member resolves in this checkout, as populate-gcv would load it; otherwise it is
+    unavailable and places nothing, since what its deployment holds is then unknown.
+    """
+    source = load_app_config()["servers"][0]["id"]
+    instances, placements = {}, {}
+    for name, definition in config["instances"].items():
+        if definition["profile"] != PROFILE_APP:
+            continue
+        domain = {**config.get("env", {}), **definition.get("env", {})}.get("DOMAIN")
+        record = {
+            "url": APP_URL.format(domain=domain, name=name),
+            "source": source,
+            "status": "unavailable",
+            "family": definition["family"],
+            "services": SERVICES_URL.format(domain=domain, name=name),
+        }
+        instances[name] = record
+        if not domain:
+            record["detail"] = "gcv.yml gives it no DOMAIN"
+            logger.warning("GCV instance %s is unavailable: no DOMAIN", name)
+            continue
+        try:
+            instance = plan(index, config, [name])[0]
+        except GcvError as err:
+            record["detail"] = str(err)
+            logger.warning("GCV instance %s is unavailable:\n%s", name, err)
+            continue
+        record["status"] = "ok"
+        for load in instance.loads:
+            placements.setdefault(load.path, []).append(
+                {"instance": name, "source": source}
+            )
+    return instances, placements

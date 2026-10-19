@@ -11,9 +11,9 @@
 template: v2.7.0-c0
 
 # Every instance's .env, before its own env. DOMAIN is the public host: requests reach
-# the instances only with it as their Host header.
+# the instances only with it as their Host header, and the catalog links to them there.
 env:
-  DOMAIN: gcv-microservices.lis.ncgr.org
+  DOMAIN: gcv2.legumeinfo.org
   REDIS_START_PERIOD: 120s
 
 instances:

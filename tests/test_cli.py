@@ -14,7 +14,7 @@ import requests
 import yaml
 from click.testing import CliRunner
 
-from lis_autocontent import lis_cli
+from lis_autocontent import gcv, lis_cli
 from lis_autocontent.catalog import CatalogBuilder
 from lis_autocontent.datastore_files import DatastoreIndex
 
@@ -273,7 +273,10 @@ def test_populate_catalog_passes_its_options_to_the_builder(
     _invoke(lis_cli.populate_catalog, args + (["--verify"] if verify else []))
     written = json.loads(out.read_text())
     builder = CatalogBuilder(
-        clone, datastore_url="https://example.org/ds", verify=verify
+        clone,
+        datastore_url="https://example.org/ds",
+        verify=verify,
+        gcv_config=gcv.CONFIG_PATH,
     )
     expected = json.loads(json.dumps(builder.build()))
     for document in (written, expected):

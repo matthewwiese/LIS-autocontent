@@ -289,6 +289,13 @@ def populate_blast(taxa_list, blast_out, from_github, cmds_only, log_file, log_l
     populate-jbrowse2 builds. Needs --jbrowse_config.""",
 )
 @click.option(
+    "--gcv_config",
+    default=gcv.CONFIG_PATH,
+    show_default="the packaged gcv.yml",
+    help="""The gcv.yml whose instances the catalog places annotations in, as
+    populate-gcv builds them.""",
+)
+@click.option(
     "--log_file",
     default="./populate-catalog.log",
     help="""Log file to output messages. (default: ./populate-catalog.log)""",
@@ -306,6 +313,7 @@ def populate_catalog(  # pylint: disable=too-many-arguments,too-many-positional-
     verify,
     jbrowse_config,
     jbrowse_report,
+    gcv_config,
     log_file,
     log_level,
 ):
@@ -322,6 +330,7 @@ def populate_catalog(  # pylint: disable=too-many-arguments,too-many-positional-
         datastore_url=datastore_url,
         verify=verify,
         jbrowse_config=jbrowse_config,
+        gcv_config=gcv_config,
     )
     logger.info(
         "Building catalog from %s (%s)...",
